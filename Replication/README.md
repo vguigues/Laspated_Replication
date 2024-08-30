@@ -6,9 +6,9 @@ In order to run the replication script you must install the laspated package and
 
 You can compile the C++ code from the Replication directory by running the command:
 
-    make -C cpp_tests
+    make -C cpp_tests USE_GUROBI=1 GUROBI_VER=110
 
-The cpp_tests directory contains a Makefile that can be edited by the user that compiles the C++ script.  The Makefile inside directory cpp_tests access the environment variable $GUROBI_HOME. If it is set, then the code for the model with Covariates inside laspated.h is accessible. Otherwise, the script will not run the experiments that uses covariates.
+The cpp_tests directory contains a Makefile that can be edited by the user that compiles the C++ script. The USE_GUROBI variable enables Gurobi support and GUROBI_VER variable specifies the Gurobi version installed. If the Gurobi support is enabled, the Makefile inside directory cpp_tests access the environment variable $GUROBI_HOME. If it is set, then the code for the model with Covariates inside laspated.h is accessible. Otherwise, the script will not run the experiments that uses covariates.
 
 After the C++ code is successfully compiled, you can run the replication script by simply running:
 

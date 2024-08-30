@@ -39,7 +39,7 @@ docker pull victorvhrn/laspated_replication
 ```
 
 
-**Note:** The DockerHub container is built without Gurobi support by default. To enable Gurobi support, you need to recompile the C++ code with Gurobi support. Check the installation guide at the [LASPATED library repository](https://github.com/vguigues/LASPATED) on how to recompile the code.
+**Note:** The DockerHub container is built without Gurobi support by default. To enable Gurobi support, you need to recompile the C++ code with Gurobi support inside the container environment. Check the [Replication README](Replication/README.md) on how to recompile the code with Gurobi support.
 
 
 
