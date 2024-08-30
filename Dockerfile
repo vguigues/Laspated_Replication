@@ -51,7 +51,7 @@ RUN if [ "$USE_GUROBI" = "1" ]; then \
 
     
 WORKDIR $PROJECT_DIR
-RUN pip3 install ${PROJECT_DIR}/laspated/.
+RUN pip3 install laspated
 
 RUN ln -s $(which python3) /usr/local/bin/python
 
