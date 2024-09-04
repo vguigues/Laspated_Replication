@@ -12,14 +12,14 @@ To run the replication script check this [guide](Replication/README.md). The ins
 If you have a [Gurobi](https://gurobi.com) Web License, you can build the container with Gurobi support by running:
 
 ```
-docker build --build-arg USE_GUROBI=1 -t laspated .
+docker build --build-arg USE_GUROBI=1 -t laspated_replication .
 ```
 
 The above command will build the container with Gurobi 11.0.1 installed. If you don't have a Gurobi license, just pass USE_GUROBI=0, in this case the experiments with the model with covariates will not be performed.
 
 To run the container with Gurobi support, you can pass the license to the container with:
 ```
-docker run --volume="/absolute/path/to/gurobi.lic:/opt/gurobi/gurobi.lic:ro" -it laspated
+docker run --volume="/absolute/path/to/gurobi.lic:/opt/gurobi/gurobi.lic:ro" -it laspated_replication
 ```
 
 This will open a shell environment with all dependencies installed. Once in the container environment you can run the replication script with:
