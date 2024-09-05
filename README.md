@@ -1,5 +1,7 @@
 # LASPATED: Library for Analysis of Spatio-Temporal Discrete Data
 
+[![DOI](https://zenodo.org/badge/845157021.svg)](https://zenodo.org/doi/10.5281/zenodo.13620752)
+
 This repository contains the replication code for the results in "LASPATED: A Library for the Analysis of
 Spatio-Temporal Discrete Data" paper ([Arxiv link](https://arxiv.org/abs/2401.04156)). The library source code is available at [Github](https://github.com/vguigues/LASPATED/)
 
