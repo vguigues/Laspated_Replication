@@ -31,7 +31,7 @@ python replication_script.py
 
 ### DockerHub
 
-The docker image is also available at [DockerHub](https://dockerhub.com). To install it, just run:
+The docker image is also available at [DockerHub](https://hub.docker.com). To install it, just run:
 
 
 ```
