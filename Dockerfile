@@ -51,7 +51,7 @@ RUN if [ "$USE_GUROBI" = "1" ]; then \
 
 
 WORKDIR $PROJECT_DIR
-RUN pip3 install laspated
+RUN pip3 install laspated scipy
 
 RUN ln -s $(which python3) /usr/local/bin/python
 
@@ -67,4 +67,8 @@ RUN if [ $USE_GUROBI = 1 ]; then \
     make -C Replication/cpp_tests USE_GUROBI=1 GUROBI_VER=110; \
     else \
     make -C Replication/cpp_tests USE_GUROBI=0; \
+    fi
+
+RUN if ["${MISSING_DATA}" = "1"]; then \
+    g++ -o missing Missing_Data/Cpp/missing_data.cpp -DUSE_GUROBI=0 -std=c++14 -I../Model_Calibration/Cpp -lboost_program_options -O3; \
     fi
