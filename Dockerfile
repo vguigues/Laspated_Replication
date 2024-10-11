@@ -1,5 +1,6 @@
 FROM ubuntu:22.04
 ARG USE_GUROBI=0
+ARG MISSING_DATA=0
 ARG GRB_VERSION=11.0.1
 ARG GRB_SHORT_VERSION=11.0
 ARG TARGETPLATFORM
@@ -70,5 +71,5 @@ RUN if [ $USE_GUROBI = 1 ]; then \
     fi
 
 RUN if ["${MISSING_DATA}" = "1"]; then \
-    g++ -o missing Missing_Data/Cpp/missing_data.cpp -DUSE_GUROBI=0 -std=c++14 -I../Model_Calibration/Cpp -lboost_program_options -O3; \
+    g++ -o missing Missing_Data/Cpp/missing_data.cpp -DUSE_GUROBI=0 -std=c++14 -m64 -I../Model_Calibration/Cpp -lboost_program_options -O3; \
     fi

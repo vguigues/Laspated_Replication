@@ -1,5 +1,28 @@
 #include "missing_data.hpp"
 
+typedef struct {
+  double prob;
+  xt::xarray<double> probs;
+  xt::xarray<double> lambda_missing;
+  xt::xarray<double> lambda_no_missing;
+} ResultModel1;
+
+class AppParams {
+ public:
+  double EPS;           // Epsilon for feasibility/convergence
+  double sigma;         // Sigma for armijo step
+  int max_iter;         // Max number of iterations.
+  double lower_lambda;  // lower bound on decision variables
+  double beta_bar;      // Initial step size in projected gradient
+
+  std::vector<double> test_weights;
+  std::string model;
+  std::string info_file;
+  std::string arrivals_file;
+  std::string neighbors_file;
+  std::string missing_file;
+};
+
 namespace po = boost::program_options;
 ResultModel1 run_model1(xt::xarray<int>& nb_observations,
                         xt::xarray<int>& nb_arrivals,
@@ -66,7 +89,239 @@ ResultModel1 run_model1(xt::xarray<int>& nb_observations,
     }
   }
 
-  return ResultModel1{prob, probs, lambdas_missing, lambdas_no_missing};
+  auto result = ResultModel1{prob, probs, lambdas_missing, lambdas_no_missing};
+
+  std::ofstream model1_lambda_file("results/lambda_model1.txt", std::ios::out);
+  for (int c = 0; c < C; ++c) {
+    for (int d = 0; d < D; ++d) {
+      for (int t = 0; t < T; ++t) {
+        int ind_t = d * T + t;
+        for (int r = 0; r < R; ++r) {
+          model1_lambda_file << c << " " << r << " " << ind_t << " "
+                             << result.lambda_no_missing(c, d, t, r) << " "
+                             << result.lambda_missing(c, d, t, r) << "\n";
+        }
+      }
+    }
+  }
+  model1_lambda_file.close();
+
+  std::ofstream model1_p_file("results/p_model1.txt", std::ios::out);
+  model1_p_file << result.prob << "\n";
+  for (int c = 0; c < C; ++c) {
+    for (int d = 0; d < D; ++d) {
+      for (int t = 0; t < T; ++t) {
+        int ind_t = d * T + t;
+        model1_p_file << c << " " << ind_t << " " << result.probs(c, d, t)
+                      << "\n";
+      }
+    }
+  }
+  model1_p_file.close();
+
+  return result;
+}
+
+void run_regularized_model(AppParams& app_params,
+                           xt::xarray<int>& nb_observations,
+                           xt::xarray<int>& nb_arrivals,
+                           xt::xarray<int>& nb_missing_arrivals,
+                           xt::xarray<double>& durations,
+                           std::vector<std::vector<int>>& neighbors) {
+  int nb_groups = 8;
+  ulong C = nb_observations.shape(0);
+  ulong D = nb_observations.shape(1);
+  ulong T = nb_observations.shape(2);
+  ulong R = nb_observations.shape(3);
+  std::vector<std::vector<std::pair<int, int>>> groups(
+      nb_groups, std::vector<std::pair<int, int>>());
+
+  // Weekday morning
+  for (int d = 0; d < 5; ++d) {
+    for (int t = 12; t < 20; ++t) {
+      groups[0].push_back(std::make_pair(d, t));
+    }
+  }
+
+  // Weekday afternoon
+  for (int d = 0; d < 5; ++d) {
+    for (int t = 20; t < 36; ++t) {
+      groups[1].push_back(std::make_pair(d, t));
+    }
+  }
+
+  // Weekday evening
+  for (int d = 0; d < 5; ++d) {
+    for (int t = 36; t < 44; ++t) {
+      groups[2].push_back(std::make_pair(d, t));
+    }
+  }
+
+  // Weekday Night
+  for (int d = 0; d < 4; ++d) {
+    for (int t = 44; t < 48; ++t) {
+      groups[3].push_back(std::make_pair(d, t));
+    }
+  }
+
+  // Sunday Night
+  for (int t = 44; t < 48; ++t) {
+    groups[3].push_back(std::make_pair(6, t));
+  }
+
+  // Weekday Early Morning
+  for (int d = 0; d < 5; ++d) {
+    for (int t = 0; t < 12; ++t) {
+      groups[3].push_back(std::make_pair(d, t));
+    }
+  }
+
+  // Friday/Saturday Night
+  for (int t = 44; t < 48; ++t) {
+    groups[4].push_back(std::make_pair(4, t));
+    groups[4].push_back(std::make_pair(5, t));
+  }
+
+  // Weekend Early Morning
+  for (int t = 0; t < 12; ++t) {
+    groups[4].push_back(std::make_pair(5, t));
+    groups[4].push_back(std::make_pair(6, t));
+  }
+
+  // Weekend Morning
+  for (int t = 12; t < 20; ++t) {
+    groups[5].push_back(std::make_pair(5, t));
+    groups[5].push_back(std::make_pair(6, t));
+  }
+
+  // Weekend Afternoon
+  for (int t = 20; t < 36; ++t) {
+    groups[6].push_back(std::make_pair(5, t));
+    groups[6].push_back(std::make_pair(6, t));
+  }
+  // Weekend Evening
+  for (int t = 36; t < 44; ++t) {
+    groups[7].push_back(std::make_pair(5, t));
+    groups[7].push_back(std::make_pair(6, t));
+  }
+
+  std::vector<double> test_weights = app_params.test_weights;
+  laspated::Param param;
+  param.EPS = app_params.EPS;
+  param.sigma = app_params.sigma;
+  param.lower_lambda = app_params.lower_lambda;
+  param.max_iter = app_params.max_iter;
+  param.beta_bar = app_params.beta_bar;
+
+  std::stringstream filename;
+
+  for (double w : test_weights) {
+    std::vector<double> weights(nb_groups, w);
+    xt::xarray<double> alphas = w * xt::ones<double>({R, R});
+    MissingLambdaModel m1(nb_observations, nb_arrivals, nb_missing_arrivals,
+                          alphas, weights, groups, neighbors, durations, param);
+    xt::xarray<double> x0 = param.EPS * xt::ones<double>({C, D, T, R});
+
+    xt::xarray<double> lambda =
+        laspated::projected_gradient_armijo_feasible<MissingLambdaModel>(
+            m1, param, x0);
+    filename.str("");
+    filename << "results/lambda_model2_w" << w << ".txt";
+    std::ofstream lambda_reg_file(filename.str(), std::ios::out);
+    for (int c = 0; c < C; ++c) {
+      for (int d = 0; d < D; ++d) {
+        for (int t = 0; t < T; ++t) {
+          int ind_t = d * T + t;
+          for (int r = 0; r < R; ++r) {
+            lambda_reg_file << c << " " << r << " " << ind_t << " "
+                            << lambda(c, d, t, r) << "\n";
+          }
+        }
+      }
+    }
+    std::cout << "Wrote file " << filename.str() << "\n";
+    lambda_reg_file.close();
+  }
+}
+
+void run_model_population(
+    AppParams& app_params, xt::xarray<int>& nb_observations,
+    xt::xarray<int>& nb_arrivals, xt::xarray<int>& nb_missing_arrivals,
+    xt::xarray<double>& durations, xt::xarray<int>& sample,
+    xt::xarray<int>& sample_missing_arrivals, ResultModel1& result) {
+  ulong C = nb_observations.shape(0);
+  ulong D = nb_observations.shape(1);
+  ulong T = nb_observations.shape(2);
+  ulong R = nb_observations.shape(3);
+  ulong nb_obs = sample.shape(4);
+
+  ulong S = 30;
+  xt::xarray<int> mn_samples = xt::zeros<int>({C, D, T, nb_obs, S, R});
+
+  std::ifstream mn_samples_file("Rect10x10/mn_samples.dat", std::ios::in);
+  int count = 0;
+  std::string aux_str;
+  while (true) {
+    std::getline(mn_samples_file, aux_str);
+    if (aux_str == "END") {
+      break;
+    }
+    std::cout << aux_str << "\n";
+    std::istringstream ss(aux_str);
+    int c, d, t, n, s, r, val;
+    ss >> c >> d >> t >> n >> s >> r >> val;
+    mn_samples(c, d, t, n, s, r) = val;
+    ++count;
+    if (count % (39836160) == 0) {
+      printf("Reading mn_samples\n");
+    }
+  }
+  mn_samples_file.close();
+  printf("Read mn_samples.txt");
+
+  laspated::Param param;
+  param.EPS = app_params.EPS;
+  param.sigma = app_params.sigma;
+  param.lower_lambda = app_params.lower_lambda;
+  param.max_iter = app_params.max_iter;
+  param.beta_bar = app_params.beta_bar;
+
+  std::stringstream filename;
+
+  MissingModel2 m2(nb_observations, nb_arrivals, nb_missing_arrivals, sample,
+                   sample_missing_arrivals, mn_samples, durations, param);
+
+  xt::xarray<double> x0 = param.EPS * xt::ones<double>({C, D, T, R});
+
+  for (int c = 0; c < C; ++c) {
+    for (int d = 0; d < D; ++d) {
+      for (int t = 0; t < T; ++t) {
+        int ind_t = d * T + t;
+        for (int r = 0; r < R; ++r) {
+          x0(c, d, t, r) = result.lambda_missing(c, d, t, r);
+        }
+      }
+    }
+  }
+
+  xt::xarray<double> lambda =
+      laspated::projected_gradient_armijo_feasible<MissingModel2>(m2, param,
+                                                                  x0);
+
+  std::ofstream lambda_model2_file("results/lambda_model3.txt", std::ios::out);
+  for (int c = 0; c < C; ++c) {
+    for (int d = 0; d < D; ++d) {
+      for (int t = 0; t < T; ++t) {
+        int ind_t = d * T + t;
+        for (int r = 0; r < R; ++r) {
+          lambda_model2_file << c << " " << r << " " << ind_t << " "
+                             << result.lambda_missing(c, d, t, r) << " "
+                             << lambda(c, d, t, r) << "\n";
+        }
+      }
+    }
+  }
+  lambda_model2_file.close();
 }
 
 void run_models(AppParams& app_params) {
@@ -167,222 +422,34 @@ void run_models(AppParams& app_params) {
   printf("Read missing_arrivals file\n");
 
   xt::xarray<double> durations = 0.5 * xt::ones<double>({D, T});
-  auto result =
-      run_model1(nb_observations, nb_arrivals, nb_missing_arrivals, durations);
 
-  printf("Run model1: P = %f\n", result.prob);
-
-  std::ofstream model1_lambda_file("results/lambda_model1.txt", std::ios::out);
-  for (int c = 0; c < C; ++c) {
-    for (int d = 0; d < D; ++d) {
-      for (int t = 0; t < T; ++t) {
-        int ind_t = d * T + t;
-        for (int r = 0; r < R; ++r) {
-          model1_lambda_file << c << " " << r << " " << ind_t << " "
-                             << result.lambda_no_missing(c, d, t, r) << " "
-                             << result.lambda_missing(c, d, t, r) << "\n";
-        }
-      }
-    }
+  if (app_params.model == "all") {
+    auto result = run_model1(nb_observations, nb_arrivals, nb_missing_arrivals,
+                             durations);
+    printf("Finished analytical model\n");
+    run_regularized_model(app_params, nb_observations, nb_arrivals,
+                          nb_missing_arrivals, durations, neighbors);
+    printf("Finished Regularized model\n");
+    run_model_population(app_params, nb_observations, nb_arrivals,
+                         nb_missing_arrivals, durations, sample,
+                         sample_missing_arrivals, result);
+    printf("Finished population model\n");
+  } else if (app_params.model == "analytical") {
+    auto result = run_model1(nb_observations, nb_arrivals, nb_missing_arrivals,
+                             durations);
+    printf("Finished analytical model\n");
+  } else if (app_params.model == "regularized") {
+    run_regularized_model(app_params, nb_observations, nb_arrivals,
+                          nb_missing_arrivals, durations, neighbors);
+    printf("Finished Regularized model\n");
+  } else if (app_params.model == "population") {
+    auto result = run_model1(nb_observations, nb_arrivals, nb_missing_arrivals,
+                             durations);
+    run_model_population(app_params, nb_observations, nb_arrivals,
+                         nb_missing_arrivals, durations, sample,
+                         sample_missing_arrivals, result);
+    printf("Finished population model\n");
   }
-  model1_lambda_file.close();
-
-  std::ofstream model1_p_file("results/p_model1.txt", std::ios::out);
-  model1_p_file << result.prob << "\n";
-  for (int c = 0; c < C; ++c) {
-    for (int d = 0; d < D; ++d) {
-      for (int t = 0; t < T; ++t) {
-        int ind_t = d * T + t;
-        model1_p_file << c << " " << ind_t << " " << result.probs(c, d, t)
-                      << "\n";
-      }
-    }
-  }
-  model1_p_file.close();
-  int nb_groups = 8;
-  std::vector<std::vector<std::pair<int, int>>> groups(
-      nb_groups, std::vector<std::pair<int, int>>());
-
-  // Weekday morning
-  for (int d = 0; d < 5; ++d) {
-    for (int t = 12; t < 20; ++t) {
-      groups[0].push_back(std::make_pair(d, t));
-    }
-  }
-
-  // Weekday afternoon
-  for (int d = 0; d < 5; ++d) {
-    for (int t = 20; t < 36; ++t) {
-      groups[1].push_back(std::make_pair(d, t));
-    }
-  }
-
-  // Weekday evening
-  for (int d = 0; d < 5; ++d) {
-    for (int t = 36; t < 44; ++t) {
-      groups[2].push_back(std::make_pair(d, t));
-    }
-  }
-
-  // Weekday Night
-  for (int d = 0; d < 4; ++d) {
-    for (int t = 44; t < 48; ++t) {
-      groups[3].push_back(std::make_pair(d, t));
-    }
-  }
-
-  // Sunday Night
-  for (int t = 44; t < 48; ++t) {
-    groups[3].push_back(std::make_pair(6, t));
-  }
-
-  // Weekday Early Morning
-  for (int d = 0; d < 5; ++d) {
-    for (int t = 0; t < 12; ++t) {
-      groups[3].push_back(std::make_pair(d, t));
-    }
-  }
-
-  // Friday Night
-  for (int t = 44; t < 48; ++t) {
-    groups[4].push_back(std::make_pair(4, t));
-  }
-
-  // Saturday Night
-  for (int t = 44; t < 48; ++t) {
-    groups[4].push_back(std::make_pair(5, t));
-  }
-
-  // Saturday Early Morning
-  for (int t = 0; t < 12; ++t) {
-    groups[4].push_back(std::make_pair(5, t));
-  }
-
-  // Sunday Early Morning
-  for (int t = 0; t < 12; ++t) {
-    groups[4].push_back(std::make_pair(6, t));
-  }
-
-  // Saturday Morning
-  for (int t = 12; t < 20; ++t) {
-    groups[5].push_back(std::make_pair(5, t));
-  }
-  // Sunday Morning
-  for (int t = 12; t < 20; ++t) {
-    groups[5].push_back(std::make_pair(6, t));
-  }
-
-  // Saturday Afternoon
-  for (int t = 20; t < 36; ++t) {
-    groups[6].push_back(std::make_pair(5, t));
-  }
-
-  // Sunday Afternoon
-  for (int t = 20; t < 36; ++t) {
-    groups[6].push_back(std::make_pair(6, t));
-  }
-  // Evening
-  for (int t = 36; t < 44; ++t) {
-    groups[7].push_back(std::make_pair(5, t));
-  }
-  // Evening
-  for (int t = 36; t < 44; ++t) {
-    groups[7].push_back(std::make_pair(6, t));
-  }
-
-  std::vector<double> test_weights{0, 0.001, 0.005, 0.01, 0.03};
-  laspated::Param param;
-  param.EPS = app_params.EPS;
-  param.sigma = app_params.sigma;
-  param.lower_lambda = app_params.lower_lambda;
-  param.max_iter = app_params.max_iter;
-  param.beta_bar = app_params.beta_bar;
-
-  std::stringstream filename;
-
-  for (double w : test_weights) {
-    std::vector<double> weights(nb_groups, w);
-    xt::xarray<double> alphas = w * xt::ones<double>({R, R});
-    MissingLambdaModel m1(nb_observations, nb_arrivals, nb_missing_arrivals,
-                          alphas, weights, groups, neighbors, durations, param);
-    xt::xarray<double> x0 = param.EPS * xt::ones<double>({C, D, T, R});
-
-    xt::xarray<double> lambda =
-        laspated::projected_gradient_armijo_feasible<MissingLambdaModel>(
-            m1, param, x0);
-    filename.str("");
-    filename << "results/lambda_model2_w" << w << ".txt";
-    std::ofstream lambda_reg_file(filename.str(), std::ios::out);
-    for (int c = 0; c < C; ++c) {
-      for (int d = 0; d < D; ++d) {
-        for (int t = 0; t < T; ++t) {
-          int ind_t = d * T + t;
-          for (int r = 0; r < R; ++r) {
-            lambda_reg_file << c << " " << r << " " << ind_t << " "
-                            << lambda(c, d, t, r) << "\n";
-          }
-        }
-      }
-    }
-    lambda_reg_file.close();
-  }
-  printf("Finished Model Regularized\n");
-  ulong S = 30;
-  xt::xarray<int> mn_samples = xt::zeros<int>({C, D, T, nb_obs, S, R});
-
-  std::ifstream mn_samples_file("Rect10x10/mn_samples.dat", std::ios::in);
-  int count = 0;
-  while (true) {
-    std::getline(mn_samples_file, aux_str);
-    if (aux_str == "END") {
-      break;
-    }
-    std::cout << aux_str << "\n";
-    std::istringstream ss(aux_str);
-    int c, d, t, n, s, r, val;
-    ss >> c >> d >> t >> n >> s >> r >> val;
-    mn_samples(c, d, t, n, s, r) = val;
-    ++count;
-    if (count % (39836160) == 0) {
-      printf("Reading mn_samples\n");
-    }
-  }
-  mn_samples_file.close();
-  printf("Read mn_samples.txt");
-  MissingModel2 m2(nb_observations, nb_arrivals, nb_missing_arrivals, sample,
-                   sample_missing_arrivals, mn_samples, durations, param);
-
-  xt::xarray<double> x0 = param.EPS * xt::ones<double>({C, D, T, R});
-
-  for (int c = 0; c < C; ++c) {
-    for (int d = 0; d < D; ++d) {
-      for (int t = 0; t < T; ++t) {
-        int ind_t = d * T + t;
-        for (int r = 0; r < R; ++r) {
-          x0(c, d, t, r) = result.lambda_missing(c, d, t, r);
-        }
-      }
-    }
-  }
-
-  xt::xarray<double> lambda =
-      laspated::projected_gradient_armijo_feasible<MissingModel2>(m2, param,
-                                                                  x0);
-
-  std::ofstream lambda_model2_file("results/lambda_model3.txt", std::ios::out);
-  for (int c = 0; c < C; ++c) {
-    for (int d = 0; d < D; ++d) {
-      for (int t = 0; t < T; ++t) {
-        int ind_t = d * T + t;
-        for (int r = 0; r < R; ++r) {
-          lambda_model2_file << c << " " << r << " " << ind_t << " "
-                             << result.lambda_missing(c, d, t, r) << " "
-                             << lambda(c, d, t, r) << "\n";
-        }
-      }
-    }
-  }
-  lambda_model2_file.close();
 }
 
 AppParams load_options(int argc, char* argv[]) {
@@ -396,6 +463,8 @@ AppParams load_options(int argc, char* argv[]) {
       "Path to configuration file.");
 
   po::options_description config("Configuration");
+  using doubles = std::vector<double>;
+  doubles test_weights;
   config.add_options()(
       "EPS,E", po::value<double>()->default_value(1e-5),
       "Epsilon for feasibility and convergence checks. Default = 1e-5")(
@@ -407,6 +476,10 @@ AppParams load_options(int argc, char* argv[]) {
       "lower bound on decision variables for both models. Default = 1e-6")(
       "beta_bar, B", po::value<double>()->default_value(2.0),
       "Initial step size for projected gradient. Default = 2.0")(
+      "test_weights", po::value<doubles>(&test_weights)->multitoken(),
+      "List of weights for the regularized model.")(
+      "model", po::value<std::string>()->default_value(""),
+      "Type of model to execute. all|analytical|regularized|population")(
       "info_file,i", po::value<std::string>()->default_value(""),
       "Path to file with general information about the model.")(
       "arrivals_file,a", po::value<std::string>()->default_value(""),
@@ -447,6 +520,8 @@ AppParams load_options(int argc, char* argv[]) {
   app_params.max_iter = vm["max_iter"].as<int>();
   app_params.lower_lambda = vm["lower_lambda"].as<double>();
   app_params.beta_bar = vm["beta_bar"].as<double>();
+  app_params.test_weights = test_weights;
+  app_params.model = vm["model"].as<std::string>();
   app_params.info_file = vm["info_file"].as<std::string>();
   app_params.arrivals_file = vm["arrivals_file"].as<std::string>();
   app_params.neighbors_file = vm["neighbors_file"].as<std::string>();
