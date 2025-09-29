@@ -69,7 +69,7 @@ Result1 test1(int nb_weeks, int nb_groups, int neighbor_factor,
   xt::xarray<int> sample =
       xt::zeros<int>({T, R, C, static_cast<ulong>(nb_observations_total)});
 
-  vector<double> durations(T, 1);
+  xt::xarray<double> durations = 1.0 * xt::ones<double>({T});
   xt::xarray<int> nb_observations =
       nb_observations_total * xt::ones<int>({C, R, T});
   xt::xarray<int> nb_arrivals = xt::zeros<int>({C, R, T});
@@ -95,14 +95,14 @@ Result1 test1(int nb_weeks, int nb_groups, int neighbor_factor,
         // printf("rate r%d t%d: %f\n", r, t, theoretical_lambda(c, r, t));
         for (int n = 0; n < nb_observations_total; ++n) {
           poisson_distribution<int> pd(theoretical_lambda(c, r, t) *
-                                       durations[t]);
+                                       durations(t));
           int this_nb_arrival = pd(gen);
           sample(t, r, c, n) = this_nb_arrival;
           nb_arrivals(c, r, t) += this_nb_arrival;
         }
         empirical_lambda(c, r, t) =
             nb_arrivals(c, r, t) /
-            static_cast<double>(nb_observations(c, r, t) * durations[t]);
+            static_cast<double>(nb_observations(c, r, t) * durations(t));
       }
     }
     // cin.get();
@@ -199,7 +199,7 @@ Result1 test1(int nb_weeks, int nb_groups, int neighbor_factor,
         projected_gradient_armijo_feasible<RegularizedModel>(model, param, x0);
     double err = model.average_rate_difference(theoretical_lambda, x);
 
-    cout << "\tw = " << w << ", err = " << err << "\n";
+    // cout << "\tw = " << w << ", err = " << err << "\n";
     // cin.get();
     err_by_weight.push_back(err);
     if (i == 0) {
@@ -335,7 +335,7 @@ Result2 test2(int nb_years, bool use_holidays) {
 
   int nb_weeks = 52;  // fixed number of weeks.
   ulong nb_obs = nb_weeks * 7;
-  vector<double> durations(T, 1);
+  xt::xarray<double> durations = 1.0 * xt::ones<double>({D, T});
   vector<pair<bool, int>> is_holidays(nb_years * nb_weeks * 7,
                                       make_pair(false, -1));
   vector<int> days_h;
@@ -483,7 +483,7 @@ Result2 test2(int nb_years, bool use_holidays) {
           }
           // printf("index = %d, day = %d, c = %d, r = %d, t = %d: rate = %f\n",
           //        index + 1, day + 1, c + 1, r + 1, t + 1, rate);
-          poisson_distribution<int> pd(rate / durations[t]);
+          poisson_distribution<int> pd(rate / durations(day, t));
           int this_nb_arrival = pd(gen);
           sample(c, day, t, r).push_back(this_nb_arrival);
           ++nb_observations(c, day, t, r);
@@ -502,7 +502,7 @@ Result2 test2(int nb_years, bool use_holidays) {
         for (int r = 0; r < R; ++r) {
           empirical_rate(c, d, t, r) =
               static_cast<double>(nb_arrivals(c, d, t, r)) /
-              (nb_observations(c, d, t, r) * durations[t]);
+              (nb_observations(c, d, t, r) * durations(d, t));
 
           double rate = 0.0;
           for (int j = 0; j < nb_regressors; ++j) {
@@ -510,7 +510,7 @@ Result2 test2(int nb_years, bool use_holidays) {
           }
           // cout << "c" << c << ", d" << d << ", t" << t << ", r" << r << ": "
           //      << "emp = " << empirical_rate(c, d, t, r)
-          //      << ", theo = " << rate / durations[t] << "\n";
+          //      << ", theo = " << rate / durations(d,t) << "\n";
         }
       }
     }
@@ -534,10 +534,6 @@ Result2 test2(int nb_years, bool use_holidays) {
   double err_emp = accumulate(difference_l2.begin(), difference_l2.end(), 0.0) /
                    difference_l2.size();
 
-  // printf("Error emp = %f\n", err_emp);
-  // cout << "END BETA/EMP\n";
-  // cin.get();
-
   using laspated::CovariatesModel;
   using laspated::Param;
   using laspated::projected_gradient_armijo_feasible;
@@ -548,7 +544,8 @@ Result2 test2(int nb_years, bool use_holidays) {
   param.lower_lambda = 1e-5;
   param.upper_lambda = 1e3;
   param.max_iter = (nb_years == 1) ? 100 : nb_years * 20;
-  CovariatesModel model(nb_observations, nb_arrivals, regressors, param);
+  CovariatesModel model(nb_observations, nb_arrivals, durations, regressors,
+                        param);
   xt::xarray<double> x0 =
       2 * pow(10.0, -3) * xt::ones<double>({C, D, T, nb_regressors});
   auto x =
@@ -569,7 +566,7 @@ Result2 test2(int nb_years, bool use_holidays) {
           for (int j = 0; j < nb_regressors; ++j) {
             rate += theoretical_beta(c, d, t, j) * regressors(j, r);
           }
-          theoretical_lambda(c, r, index_t) = rate / durations[t];
+          theoretical_lambda(c, r, index_t) = rate / durations(d, t);
         }
       }
     }
@@ -611,12 +608,12 @@ Result2 test2(int nb_years, bool use_holidays) {
 
   xt::xarray<int> nb_obs_no_cov1 = xt::zeros<int>({C, R, D * T});
   xt::xarray<int> nb_arrivals_no_cov1 = xt::zeros<int>({C, R, D * T});
-  vector<double> durations1(D * T, -1);
+  xt::xarray<double> durations1 = -1.0 * xt::ones<double>({D * T});
   for (int c = 0; c < C; ++c) {
     for (int d = 0; d < D; ++d) {
       for (int t = 0; t < T; ++t) {
         int index_t = d * T + t;
-        durations1[index_t] = durations[t];
+        durations1(index_t) = durations(d, t);
         for (int r = 0; r < R; ++r) {
           nb_obs_no_cov1(c, r, index_t) = nb_observations(c, d, t, r);
           nb_arrivals_no_cov1(c, r, index_t) = nb_arrivals(c, d, t, r);
@@ -749,8 +746,27 @@ typedef struct {
   xt::xarray<double> empirical_rates;
   xt::xarray<double> regularized_rates;
   xt::xarray<double> covariates_rates;
-  std::vector<double> durations;
+  xt::xarray<double> durations;
 } Result3;
+
+std::vector<std::string> split(const std::string &s, char delimiter) {
+  std::vector<std::string> tokens;
+  std::string token;
+
+  for (char ch : s) {
+    if (ch == delimiter) {
+      tokens.push_back(token);
+      token.clear();
+    } else {
+      token += ch;
+    }
+  }
+
+  // adiciona o último token (mesmo que vazio)
+  tokens.push_back(token);
+
+  return tokens;
+}
 
 #if USE_GUROBI == 1
 Result3 test3(std::string &base_path) {
@@ -758,6 +774,9 @@ Result3 test3(std::string &base_path) {
   stringstream info_file_name;
   stringstream arrivals_file_name;
   stringstream neighbors_file_name;
+  auto tokens_base_path = split(base_path, '/');
+  auto disc_name = tokens_base_path.back();
+  std::cout << "base path = " << base_path << "\n";
   info_file_name << base_path << "/info.dat";
   arrivals_file_name << base_path << "/arrivals.dat";
   neighbors_file_name << base_path << "/neighbors.dat";
@@ -800,7 +819,7 @@ Result3 test3(std::string &base_path) {
     istringstream ss(aux_str);
     int t, d, r, c, j, val;
     ss >> t >> d >> r >> c >> j >> val;
-    // fmt::print("calls {} {} {} {} {} {} {}\n",t,d,r,c,j,val,h);
+    // printf("calls %d %d %d %d %d %d\n", t, d, r, c, j, val);
     // cin.get();
     sample(c, d, t, r).push_back(val);
     nb_observations(c, d, t, r) += 1;
@@ -808,7 +827,7 @@ Result3 test3(std::string &base_path) {
   } while (true);
 
   arrivals_file.close();
-  auto durations = vector<double>(T, 0.5);
+  xt::xarray<double> durations = 0.5 * xt::ones<double>({D, T});
   xt::xarray<double> empirical_rates = xt::zeros<double>({C, R, D * T});
   for (int c = 0; c < C; ++c) {
     for (int d = 0; d < D; ++d) {
@@ -818,7 +837,7 @@ Result3 test3(std::string &base_path) {
           empirical_rates(c, r, d * T + t) =
               static_cast<double>(nb_arrivals(c, d, t, r)) /
               (nb_observations(c, d, t, r));
-          empirical_rates(c, r, d * T + t) /= durations[t];
+          empirical_rates(c, r, d * T + t) /= durations(d, t);
           // printf("c%d r%d t%ld, emp = %f, obs = %d arr = %d\n", c, r, d * T +
           // t,
           //        empirical_rates(c, r, d * T + t), nb_observations(c, d, t,
@@ -859,7 +878,7 @@ Result3 test3(std::string &base_path) {
   xt::xarray<int> nb_observations_no_cov = xt::zeros<int>({C, R, D * T});
   xt::xarray<int> nb_arrivals_no_cov = xt::zeros<int>({C, R, D * T});
   xt::xarray<int> sample_no_cov = xt::zeros<int>({D * T, R, C, nb_obs});
-  vector<double> durations_no_cov(D * T, 0.5);
+  xt::xarray<double> durations_no_cov = 0.5 * xt::ones<double>({D * T});
   for (int c = 0; c < C; ++c) {
     for (int d = 0; d < D; ++d) {
       for (int t = 0; t < T; ++t) {
@@ -896,7 +915,8 @@ Result3 test3(std::string &base_path) {
   Param param;
   param.upper_lambda = 1e3;
   param.EPS = 1e-5;
-  param.max_iter = 30;
+  param.max_iter = 500;
+  param.relax_empirical_fix = true;
   int t2 = regressors.shape(1);
   for (int i = 0; i < t2; ++i) {
     double sum = 0;
@@ -916,15 +936,17 @@ Result3 test3(std::string &base_path) {
                       durations_no_cov, groups, weights, alphas, distance,
                       type_region, neighbors, param);
 
-  cout << "Running Cross Validation\n";
+  // cout << "Running Cross Validation\n";
   auto cv_result = cross_validation(param, m1, sample_no_cov, test_weights);
   xt::xarray<double> regularized_rates = cv_result.lambda;
-  // cout << "CV best Weight = " << cv_result.weight << "\n";
-  // cout << "OBJ CV = " << m1.f(regularized_rates) << "\n";
-  // Covariates test
+  // xt::xarray<double> regularized_rates = xt::zeros<double>({C, R, T});
+  //  cout << "CV best Weight = " << cv_result.weight << "\n";
+  //  cout << "OBJ CV = " << m1.f(regularized_rates) << "\n";
+  //  Covariates test
   using laspated::CovariatesModel;
 
-  CovariatesModel m2(nb_observations, nb_arrivals, regressors, param);
+  CovariatesModel m2(nb_observations, nb_arrivals, durations, regressors,
+                     param);
   xt::xarray<double> x0 =
       2 * pow(10.0, -3) * xt::ones<double>({C, D, T, nb_regressors});
   cout << "Running Model with Covariates\n";
@@ -933,17 +955,33 @@ Result3 test3(std::string &base_path) {
                                                                     x0);
 
   // cout << "OBJ REG = " << m2.f(x) << "\n";
+  for (int c = 0; c < m2.C; ++c) {
+    double sum_c = 0.0;
+    for (int d = 0; d < m2.D; ++d) {
+      for (int t = 0; t < m2.T; ++t) {
+        for (int r = 0; r < m2.R; ++r) {
+          double rate = 0.0;
+          for (int j = 0; j < m2.nb_regressors; ++j) {
+            rate += x(c, d, t, j) * m2.regressors(j, r);
+          }
+          sum_c += rate;
+        }
+      }
+    }
+    double diff = m2.emp_rates_by_class[c] - sum_c;
+    double gap = abs(diff) / m2.emp_rates_by_class[c];
+  }
   xt::xarray<double> covariates_rates = xt::zeros<double>({C, R, D * T});
   for (int c = 0; c < C; ++c) {
-    for (int d = 0; d < D; ++d) {
-      for (int t = 0; t < T; ++t) {
-        int index_t = d * T + t;
-        for (int r = 0; r < R; ++r) {
+    for (int r = 0; r < R; ++r) {
+      for (int d = 0; d < D; ++d) {
+        for (int t = 0; t < T; ++t) {
+          int index_t = d * T + t;
           double rate = 0;
           for (int j = 0; j < nb_regressors; ++j) {
             rate += x(c, d, t, j) * regressors(j, r);
           }
-          covariates_rates(c, r, index_t) = rate / durations[t];
+          covariates_rates(c, r, index_t) = rate / durations(d, t);
         }
       }
     }
@@ -1006,7 +1044,7 @@ Result1 test1_deterministic(std::string &filename, int nb_weeks, int nb_groups,
   xt::xarray<int> sample =
       xt::zeros<int>({T, R, C, static_cast<ulong>(nb_observations_total)});
 
-  vector<double> durations(T, 1);
+  xt::xarray<double> durations = 1.0 * xt::ones<double>({T});
   xt::xarray<int> nb_observations =
       nb_observations_total * xt::ones<int>({C, R, T});
   xt::xarray<int> nb_arrivals = xt::zeros<int>({C, R, T});
@@ -1019,10 +1057,6 @@ Result1 test1_deterministic(std::string &filename, int nb_weeks, int nb_groups,
     int t, c, r, j, val;
     sample1_1 >> t >> c >> r >> j >> val;
     sample(t - 1, r - 1, c - 1, j - 1) = val;
-    if (sample(t - 1, r - 1, c - 1, j - 1) > 0) {
-      printf("sample c%d r%d t%d j%d = %d\n", c, r, t, j,
-             sample(t - 1, r - 1, c - 1, j - 1));
-    }
     nb_arrivals(c - 1, r - 1, t - 1) += val;
   }
   sample1_1.close();
@@ -1032,7 +1066,7 @@ Result1 test1_deterministic(std::string &filename, int nb_weeks, int nb_groups,
       for (int t = 0; t < T; ++t) {
         empirical_lambda(c, r, t) =
             nb_arrivals(c, r, t) /
-            static_cast<double>(nb_observations(c, r, t) * durations[t]);
+            static_cast<double>(nb_observations(c, r, t) * durations(t));
       }
     }
   }
@@ -1144,7 +1178,7 @@ Result1 test1_deterministic(std::string &filename, int nb_weeks, int nb_groups,
     xt::xarray<double> x =
         projected_gradient_armijo_feasible<RegularizedModel>(model, param, x0);
     double err = model.average_rate_difference(theoretical_lambda, x);
-    cout << "\tw = " << w << ", err = " << err << "\n";
+    // cout << "\tw = " << w << ", err = " << err << "\n";
     // cin.get();
     err_by_weight.push_back(err);
     mean_emp =

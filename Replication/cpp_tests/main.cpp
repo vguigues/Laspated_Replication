@@ -135,8 +135,8 @@ void ex2_reg() {
 void real_data(const std::string& data_dir) {
   using namespace std;
   const std::string base_dir = data_dir + "/discretizations";
-  vector<string> test_base_paths{base_dir + "/rect", base_dir + "/hex",
-                                 base_dir + "/district"};
+  vector<string> test_base_paths{base_dir + "/rect", base_dir + "/district",
+                                 base_dir + "/hex"};
 
   for (auto& base_path : test_base_paths) {
     auto result = test3(base_path);
@@ -152,6 +152,7 @@ void real_data(const std::string& data_dir) {
       vector<double> sum_c_reg(C, 0);
       vector<double> sum_c_cov(C, 0);
       rates_by_t << t << " ";
+      // std::cout << "t = " << t << ": emp, reg, cov = ";
       for (int c = 0; c < C; ++c) {
         for (int r = 0; r < R; ++r) {
           sum_c_emp[c] += result.empirical_rates(c, r, t);
@@ -160,8 +161,11 @@ void real_data(const std::string& data_dir) {
         }
         rates_by_t << sum_c_emp[c] << " " << sum_c_reg[c] << " " << sum_c_cov[c]
                    << " ";
+        // std::cout << sum_c_emp[c] << ", " << sum_c_reg[c] << ", "
+        //           << sum_c_cov[c] << " | ";
       }
       rates_by_t << "\n";
+      // std::cout << "\n";
     }
     rates_by_t.close();
     stringstream r_rates_filename;

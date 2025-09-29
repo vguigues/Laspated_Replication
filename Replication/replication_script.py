@@ -217,6 +217,7 @@ def experiment_1():
             x_axis = [w / nb_weeks for w in initial_weights[constant_lambda]]
             model = 1 if constant_lambda == 1 else 2
             fig, ax = plt.subplots(figsize=(12, 12))
+            all_y_values = []
             for nb_groups in test_nb_groups:
                 for neighbor_factor in test_neighbor_factors:
                     result = Ex1Result(
@@ -231,6 +232,7 @@ def experiment_1():
                             result.w_cv if result.has_cv else -1,
                         )
                     y_axis = result.err_by_w
+                    all_y_values.extend(y_axis)
                     plt.scatter(
                         x_axis[result.min_w],
                         result.err_by_w[result.min_w],
@@ -255,6 +257,8 @@ def experiment_1():
                             linestyle="-",
                             label="Cross validation",
                         )
+            if max(all_y_values)/max(1,min(all_y_values)) > 100:  # critério
+                ax.set_yscale("log")
             ax.set_xlabel("Penalties", fontsize=18)
             ax.set_ylabel("Relative error", fontsize=18)
             ax.legend(fontsize=18)
