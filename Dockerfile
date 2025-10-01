@@ -1,13 +1,18 @@
 FROM ubuntu:22.04
 ARG USE_GUROBI=0
+ENV USE_GUROBI=${USE_GUROBI}
 ARG MISSING_DATA=0
 ARG GRB_VERSION=11.0.1
+ENV GRB_VERSION=11.0.1
 ARG GRB_SHORT_VERSION=11.0
+ENV GRB_SHORT_VERSION=11.0
 ARG TARGETPLATFORM
 ARG PROJECT_DIR=/LASPATED
 ENV GUROBI_HOME=/opt/gurobi/linux
-ENV PATH=$PATH:$GUROBI_HOME/bin
-ENV LD_LIBRARY_PATH=$GUROBI_HOME/lib
+# ENV PATH=$PATH:$GUROBI_HOME/bin
+ENV PATH="${PATH}:${GUROBI_HOME}/bin"
+# ENV LD_LIBRARY_PATH=$GUROBI_HOME/lib
+ENV LD_LIBRARY_PATH="${GUROBI_HOME}/lib"
 COPY . $PROJECT_DIR
 
 # Create a script to determine GRB_PLATFORM based on TARGETPLATFORM
@@ -35,21 +40,35 @@ RUN apt-get install --no-install-recommends -y\
     && python3 -m pip install gurobipy==${GRB_VERSION} \
     && rm -rf /var/lib/apt/lists/*
 
-RUN if [ "$USE_GUROBI" = "1" ]; then \
-    export GRB_PLATFORM=$(cat /platform.txt) && echo $GRB_PLATFORM \
-    && apt-get update \
-    && apt-get install --no-install-recommends -y\
-    ca-certificates  \
-    wget \
-    && update-ca-certificates \
-    && wget -v https://packages.gurobi.com/${GRB_SHORT_VERSION}/gurobi${GRB_VERSION}_$GRB_PLATFORM.tar.gz \
-    && tar -xvf gurobi${GRB_VERSION}_$GRB_PLATFORM.tar.gz  \
-    && rm -f gurobi${GRB_VERSION}_$GRB_PLATFORM.tar.gz \
-    && mv -f gurobi* gurobi \
-    && rm -rf gurobi/$GRB_PLATFORM/docs \
-    && mv -f gurobi/$GRB_PLATFORM*  gurobi/linux; \
+
+
+# RUN if [ "$USE_GUROBI" = "1" ]; then \
+#     export GRB_PLATFORM=$(cat /platform.txt) && echo $GRB_PLATFORM \
+#     && apt-get update \
+#     && apt-get install --no-install-recommends -y\
+#     ca-certificates  \
+#     wget \
+#     && update-ca-certificates \
+#     && wget -v https://packages.gurobi.com/${GRB_SHORT_VERSION}/gurobi${GRB_VERSION}_$GRB_PLATFORM.tar.gz \
+#     && tar -xvf gurobi${GRB_VERSION}_$GRB_PLATFORM.tar.gz  \
+#     && rm -f gurobi${GRB_VERSION}_$GRB_PLATFORM.tar.gz \
+#     && mv -f gurobi* gurobi \
+#     && rm -rf gurobi/$GRB_PLATFORM/docs \
+#     && mv -f gurobi/$GRB_PLATFORM*  gurobi/linux; \
+#     fi
+
+RUN if [ "${USE_GUROBI}" = "1" ]; then \
+    GRB_PLATFORM=$(cat /platform.txt) && \
+    apt-get update && apt-get install -y ca-certificates wget && \
+    wget -v https://packages.gurobi.com/${GRB_SHORT_VERSION}/gurobi${GRB_VERSION}_${GRB_PLATFORM}.tar.gz && \
+    tar -xvf gurobi${GRB_VERSION}_${GRB_PLATFORM}.tar.gz && \
+    rm gurobi${GRB_VERSION}_${GRB_PLATFORM}.tar.gz && \
+    mv gurobi* gurobi && \
+    mv gurobi/${GRB_PLATFORM} gurobi/linux; \
     fi
 
+
+RUN ls -R /opt/gurobi
 
 WORKDIR $PROJECT_DIR
 RUN pip3 install laspated scipy
@@ -70,6 +89,6 @@ RUN if [ $USE_GUROBI = 1 ]; then \
     make -C Replication/cpp_tests USE_GUROBI=0; \
     fi
 
-RUN if ["${MISSING_DATA}" = "1"]; then \
+RUN if [ "${MISSING_DATA}" = "1" ]; then \
     g++ -o missing Missing_Data/Cpp/missing_data.cpp -DUSE_GUROBI=0 -std=c++14 -m64 -I../Model_Calibration/Cpp -lboost_program_options -O3; \
     fi

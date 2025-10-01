@@ -521,11 +521,10 @@ class RegularizedModel {
            difference_l2.size();
   }
 };
-#define USE_GUROBI 1
+
 #if USE_GUROBI == 1
 class CovariatesModel {
  public:
-  GRBEnv env;
   Param &param;
   std::string name = "Covariates";
   xt::xarray<int> nb_observations;
