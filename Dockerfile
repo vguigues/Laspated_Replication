@@ -68,8 +68,6 @@ RUN if [ "${USE_GUROBI}" = "1" ]; then \
     fi
 
 
-RUN ls -R /opt/gurobi
-
 WORKDIR $PROJECT_DIR
 RUN pip3 install laspated scipy
 
