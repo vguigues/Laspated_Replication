@@ -525,6 +525,7 @@ class RegularizedModel {
 #if USE_GUROBI == 1
 class CovariatesModel {
  public:
+  GRBEnv env;
   Param &param;
   std::string name = "Covariates";
   xt::xarray<int> nb_observations;
