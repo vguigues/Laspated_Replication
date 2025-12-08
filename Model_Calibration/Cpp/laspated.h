@@ -179,7 +179,7 @@ class Param {
 
   // Constructor methods
   Param() {}
-  Param(AppParameters &app_params)
+  Param(AppParameters& app_params)
       : EPS(app_params.EPS),
         sigma(app_params.sigma),
         gap(app_params.gap),
@@ -189,7 +189,7 @@ class Param {
         beta_bar(app_params.beta_bar),
         cv_proportion(app_params.cv_proportion),
         relax_empirical_fix(app_params.relax_empirical_fix) {}
-  Param(const Param &p)
+  Param(const Param& p)
       : EPS(p.EPS),
         sigma(p.sigma),
         gap(p.gap),
@@ -200,7 +200,7 @@ class Param {
         cv_proportion(p.cv_proportion),
         relax_empirical_fix(p.relax_empirical_fix) {}
 
-  Param &operator=(const Param &p) {
+  Param& operator=(const Param& p) {
     if (this == &p) return *this;
 
     // Projected gradient params
@@ -217,7 +217,7 @@ class Param {
     relax_empirical_fix = p.relax_empirical_fix;
     return *this;
   }
-  friend std::ostream &operator<<(std::ostream &out, const Param &p) {
+  friend std::ostream& operator<<(std::ostream& out, const Param& p) {
     out << "Parameters:\n";
 
     out << "Max Iter = " << p.max_iter << "\n";
@@ -231,7 +231,7 @@ class Param {
 
 class RegularizedModel {
  public:
-  Param &param;
+  Param& param;
   std::string name = "Regularized";
   xt::xarray<int> nb_observations;
   xt::xarray<int> nb_arrivals;
@@ -247,12 +247,12 @@ class RegularizedModel {
 
   ulong C, R, T;
 
-  RegularizedModel(xt::xarray<int> &N, xt::xarray<int> &M,
-                   xt::xarray<double> &a_durations,
-                   std::vector<std::vector<int>> &a_groups,
-                   std::vector<double> &a_weights, xt::xarray<double> &a_alphas,
-                   xt::xarray<double> &a_distance, std::vector<int> &a_type,
-                   std::vector<std::vector<int>> &a_neighbors, Param &a_param)
+  RegularizedModel(xt::xarray<int>& N, xt::xarray<int>& M,
+                   xt::xarray<double>& a_durations,
+                   std::vector<std::vector<int>>& a_groups,
+                   std::vector<double>& a_weights, xt::xarray<double>& a_alphas,
+                   xt::xarray<double>& a_distance, std::vector<int>& a_type,
+                   std::vector<std::vector<int>>& a_neighbors, Param& a_param)
       : param(a_param) {
     if (N.dimension() != 3) {  // N should be C,R,T
       std::cout << "Error: N has " << N.dimension()
@@ -304,7 +304,7 @@ class RegularizedModel {
     }
   }
 
-  double f(xt::xarray<double> &x) {
+  double f(xt::xarray<double>& x) {
     double obj = 0;
 
     for (int c = 0; c < C; ++c) {
@@ -328,7 +328,7 @@ class RegularizedModel {
     for (int c = 0; c < C; ++c) {
       for (int r = 0; r < R; ++r) {
         for (int grindex = 0; grindex < groups.size(); ++grindex) {
-          auto &group = groups[grindex];
+          auto& group = groups[grindex];
           for (int j = 0; j < group.size(); ++j) {
             int t = group[j];
             for (int itp = 0; itp < group.size(); ++itp) {
@@ -347,7 +347,7 @@ class RegularizedModel {
     return obj;
   }
 
-  xt::xarray<double> gradient(xt::xarray<double> &x) {
+  xt::xarray<double> gradient(xt::xarray<double>& x) {
     xt::xarray<double> gradient = xt::zeros<double>(x.shape());
 
     for (int c = 0; c < C; ++c) {
@@ -373,7 +373,7 @@ class RegularizedModel {
     for (int c = 0; c < C; ++c) {
       for (int r = 0; r < R; ++r) {
         for (int t = 0; t < T; ++t) {
-          auto &group = groups[which_group[t]];
+          auto& group = groups[which_group[t]];
           for (int j = 0; j < group.size(); ++j) {
             int tp = group[j];
             if (tp != t) {
@@ -389,7 +389,7 @@ class RegularizedModel {
     return gradient;
   }
 
-  xt::xarray<double> projection(xt::xarray<double> &x) {
+  xt::xarray<double> projection(xt::xarray<double>& x) {
     xt::xarray<double> z = xt::zeros<double>(x.shape());
     if (!param.relax_empirical_fix) {
       for (int c = 0; c < C; ++c) {
@@ -454,7 +454,7 @@ class RegularizedModel {
     return z;
   }
 
-  bool is_feasible(xt::xarray<double> &x) {
+  bool is_feasible(xt::xarray<double>& x) {
     for (int c = 0; c < C; ++c) {
       double sum_c = 0.0;
       for (int r = 0; r < R; ++r) {
@@ -477,7 +477,7 @@ class RegularizedModel {
     return true;
   }
 
-  double get_rhs(xt::xarray<double> &grad, xt::xarray<double> &dir) {
+  double get_rhs(xt::xarray<double>& grad, xt::xarray<double>& dir) {
     double sum = 0;
     for (int c = 0; c < C; ++c) {
       for (int r = 0; r < R; ++r) {
@@ -489,7 +489,7 @@ class RegularizedModel {
     return sum;
   }
 
-  double get_lower_bound(xt::xarray<double> &x, xt::xarray<double> &grad) {
+  double get_lower_bound(xt::xarray<double>& x, xt::xarray<double>& grad) {
     double change = 0.0;
     for (int c = 0; c < C; ++c) {
       for (int r = 0; r < R; ++r) {
@@ -505,8 +505,8 @@ class RegularizedModel {
     return change;
   }
 
-  double average_rate_difference(xt::xarray<double> &x1,
-                                 xt::xarray<double> &x2) {
+  double average_rate_difference(xt::xarray<double>& x1,
+                                 xt::xarray<double>& x2) {
     using namespace std;
     vector<double> difference_l2;
     for (int c = 0; c < C; ++c) {
@@ -526,7 +526,7 @@ class RegularizedModel {
 class CovariatesModel {
  public:
   GRBEnv env;
-  Param &param;
+  Param& param;
   std::string name = "Covariates";
   xt::xarray<int> nb_observations;
   xt::xarray<int> nb_arrivals;
@@ -536,9 +536,9 @@ class CovariatesModel {
 
   ulong C, D, T, R, nb_regressors;
 
-  CovariatesModel(xt::xarray<int> &N, xt::xarray<int> &M,
-                  xt::xarray<double> &a_durations, xt::xarray<double> &reg,
-                  Param &param)
+  CovariatesModel(xt::xarray<int>& N, xt::xarray<int>& M,
+                  xt::xarray<double>& a_durations, xt::xarray<double>& reg,
+                  Param& param)
       : param(param) {
     if (N.dimension() != 4) {  // N should be C,D,T,R
       std::cout << "Error: N has " << N.dimension()
@@ -596,7 +596,7 @@ class CovariatesModel {
     }
   }
 
-  double f(xt::xarray<double> &x) {
+  double f(xt::xarray<double>& x) {
     double f = 0;
 
     for (int c = 0; c < C; ++c) {
@@ -622,7 +622,7 @@ class CovariatesModel {
     return f;
   }
 
-  xt::xarray<double> gradient(xt::xarray<double> &x) {
+  xt::xarray<double> gradient(xt::xarray<double>& x) {
     using namespace std;
     xt::xarray<double> gradient = xt::zeros<double>(x.shape());
 
@@ -705,7 +705,7 @@ class CovariatesModel {
     return gradient;
   }
 
-  xt::xarray<double> projection(xt::xarray<double> &x) {
+  xt::xarray<double> projection(xt::xarray<double>& x) {
     using namespace std;
     xt::xarray<GRBVar> y({C, D, T, nb_regressors});
     GRBModel model(env);
@@ -738,7 +738,7 @@ class CovariatesModel {
     // cin.get();
     try {
       model.setObjective(obj, GRB_MINIMIZE);
-    } catch (GRBException &ex) {
+    } catch (GRBException& ex) {
       cout << ex.getMessage() << "\n";
       exit(1);
     }
@@ -813,7 +813,7 @@ class CovariatesModel {
     return y_val;
   }
 
-  bool is_feasible(xt::xarray<double> &x) {
+  bool is_feasible(xt::xarray<double>& x) {
     for (int c = 0; c < C; ++c) {
       double sum_c = 0.0;
       for (int d = 0; d < D; ++d) {
@@ -838,7 +838,7 @@ class CovariatesModel {
     return true;
   }
 
-  double get_rhs(xt::xarray<double> &grad, xt::xarray<double> &dir) {
+  double get_rhs(xt::xarray<double>& grad, xt::xarray<double>& dir) {
     using namespace std;
     vector<double> aux1;
     vector<double> aux2;
@@ -874,7 +874,7 @@ class CovariatesModel {
     return rhs - rhs2;
   }
 
-  double get_lower_bound(xt::xarray<double> &x, xt::xarray<double> &grad) {
+  double get_lower_bound(xt::xarray<double>& x, xt::xarray<double>& grad) {
     GRBModel model(env);
     std::stringstream name;
     xt::xarray<GRBVar> y({C, D, T, nb_regressors});
@@ -945,8 +945,8 @@ class CovariatesModel {
     }
   }
 
-  double average_rate_difference(xt::xarray<double> &x1,
-                                 xt::xarray<double> &x2) {
+  double average_rate_difference(xt::xarray<double>& x1,
+                                 xt::xarray<double>& x2) {
     using namespace std;
     vector<double> difference_l2;
     for (int c = 0; c < C; ++c) {
@@ -974,9 +974,9 @@ class CovariatesModel {
 #endif
 
 template <typename Model>
-xt::xarray<double> projected_gradient_armijo_feasible(Model &model,
-                                                      Param &param,
-                                                      xt::xarray<double> &x) {
+xt::xarray<double> projected_gradient_armijo_feasible(Model& model,
+                                                      Param& param,
+                                                      xt::xarray<double>& x) {
   if (model.name == "Regularized") {
     return regularized(model, param, x);
   } else if ((model.name == "Covariates")) {
@@ -1104,8 +1104,8 @@ xt::xarray<double> projected_gradient_armijo_feasible(Model &model,
 }
 
 template <typename Model>
-xt::xarray<double> regularized(Model &model, Param &param,
-                               xt::xarray<double> &x) {
+xt::xarray<double> regularized(Model& model, Param& param,
+                               xt::xarray<double>& x) {
   using namespace std;
   int k = 0;
   vector<double> f_val;
@@ -1126,8 +1126,10 @@ xt::xarray<double> regularized(Model &model, Param &param,
 
   x = model.projection(x);
   double fold = model.f(x);
+  // printf("initial f = %f\n", fold);
   gradient = model.gradient(x);
   int iter_without_improv = 0;
+  std::vector<double> improvs;
   while (k < max_iter && (k < 30 || iter_without_improv < 5)) {
     x_aux = x - beta_k * gradient;
     z = model.projection(x_aux);
@@ -1135,8 +1137,10 @@ xt::xarray<double> regularized(Model &model, Param &param,
     int j = 1;
     diff_aux = x - z;
     double f = model.f(z);
+    // printf("f(z) = %f, beta = %f\n", f, beta_k);
+    // std::cin.get();
     double rhs = model.get_rhs(gradient, diff_aux);
-    // double diff = f - fold + sigma * rhs;
+    double diff = f - fold + sigma * rhs;
     // printf("\tk = %d, fold = %f, f = %f, rhs = %f diff = %f\n", k, fold, f,
     // rhs,
     //        diff);
@@ -1147,7 +1151,7 @@ xt::xarray<double> regularized(Model &model, Param &param,
         f = model.f(z_aux);
         // printf("\t\tj = %d, f = %f z_aux = (%f,%f)\n", j, f, z_aux(0),
         //        z_aux(1));
-        if (f <= fold - (sigma / pow(2.0, j)) * rhs) {
+        if (f <= fold - (sigma / pow(2.0, j)) * rhs || j > 20) {
           stop = true;
         } else {
           ++j;
@@ -1160,7 +1164,8 @@ xt::xarray<double> regularized(Model &model, Param &param,
       x = z;
       beta_k *= 2;
     }
-    if (abs(fold - f) / f < 0.0001) {
+    improvs.push_back(abs(fold - f) / max(1.0, abs(f)));
+    if (improvs.back() < 0.00001) {
       ++iter_without_improv;
     } else {
       iter_without_improv = 0;
@@ -1171,12 +1176,19 @@ xt::xarray<double> regularized(Model &model, Param &param,
     ++k;
     // std::cin.get();
   }
+  double final_f = model.f(x);
+  double avg_improv =
+      std::accumulate(improvs.begin(), improvs.end(), 0.0) / improvs.size();
+  printf(
+      "Finished regularized PG with k = %d, f = %f, improv_final = %f, "
+      "avg_improv = %f\n",
+      k, final_f, improvs.back(), avg_improv);
   return x;
 }
 
 template <typename Model>
-xt::xarray<double> covariates(Model &model, Param &param,
-                              xt::xarray<double> &x) {
+xt::xarray<double> covariates(Model& model, Param& param,
+                              xt::xarray<double>& x) {
   using namespace std;
   int k = 0;
   double b_param = param.beta_bar;
@@ -1187,7 +1199,7 @@ xt::xarray<double> covariates(Model &model, Param &param,
   vector<double> f_val;
   int max_iter = param.max_iter;
   x = model.projection(x);
-
+  printf("Initial projection done\n");
   xt::xarray<double> z = xt::zeros<double>(x.shape());
   xt::xarray<double> z_aux = xt::zeros<double>(x.shape());
   xt::xarray<double> diff_aux = xt::zeros<double>(x.shape());
@@ -1195,15 +1207,19 @@ xt::xarray<double> covariates(Model &model, Param &param,
 
   while (k < max_iter) {
     double fold = model.f(x);
+    printf("fold done\n");
     xt::xarray<double> gradient = model.gradient(x);
+    printf("gradient done\n");
     xt::xarray<double> x_aux = x - beta_k * gradient;
     z = model.projection(x_aux);
+    printf("projection done\n");
     bool stop = false;
     int j = 0;
     diff_aux = x - z;
     double f = model.f(z);
     double rhs = model.get_rhs(gradient, diff_aux);
-    // printf("k = %d, fold = %.8f, f = %.8f, rhs = %f\n", k, fold, f, rhs);
+    printf("rhs done\n");
+    printf("k = %d, fold = %.8f, f = %.8f, rhs = %f\n", k, fold, f, rhs);
     if (f > fold - sigma * rhs) {
       bool stop = false;
       while (!stop) {
@@ -1231,9 +1247,9 @@ xt::xarray<double> covariates(Model &model, Param &param,
 }
 
 template <typename Model>
-xt::xarray<double> projected_gradient_armijo_boundary(Model &model,
-                                                      Param &param,
-                                                      xt::xarray<double> &x) {
+xt::xarray<double> projected_gradient_armijo_boundary(Model& model,
+                                                      Param& param,
+                                                      xt::xarray<double>& x) {
   int k = 0;
   double beta_bar = param.beta_bar;
   // x = model.projection(x);
@@ -1273,9 +1289,9 @@ typedef struct {
   xt::xarray<double> lambda;
 } CrossValidationResult;
 
-CrossValidationResult cross_validation(Param &param, RegularizedModel &model,
-                                       xt::xarray<int> &sample,
-                                       std::vector<double> &group_weights) {
+CrossValidationResult cross_validation(Param& param, RegularizedModel& model,
+                                       xt::xarray<int>& sample,
+                                       std::vector<double>& group_weights) {
   if (sample.dimension() != 4 || sample.shape(0) != model.T ||
       sample.shape(1) != model.R || sample.shape(2) != model.C) {
     std::cout << "Incorrect sample shape. Sample must be shaped {T,R,C,K}.\n";
@@ -1406,11 +1422,13 @@ CrossValidationResult cross_validation(Param &param, RegularizedModel &model,
 // CrossValidationResult cross_validation2(Param &param, RegularizedModel
 // &model,
 //                                         xt::xarray<int> &sample,
-//                                         std::vector<double> &group_weights) {
+//                                         std::vector<double> &group_weights)
+//                                         {
 //   if (sample.dimension() != 4 || sample.shape(0) != model.T ||
 //       sample.shape(1) != model.R || sample.shape(2) != model.C) {
 //     std::cout
-//         << "Incorrect sample shape. Sample must be shaped {T, R, C, K}.\n ";
+//         << "Incorrect sample shape. Sample must be shaped {T, R, C, K}.\n
+//         ";
 //     exit(1);
 //   }
 //   std::vector<double> alphas = group_weights;
@@ -1423,16 +1441,18 @@ CrossValidationResult cross_validation(Param &param, RegularizedModel &model,
 //   xt::xarray<int> initial_nb_obs = model.nb_observations;
 //   xt::xarray<int> initial_nb_arrivals = model.nb_arrivals;
 //   // fmt::print("cross validation weights.size = {}\n",
-//   group_weights.size()); double best_alpha = GRB_INFINITY; double best_weight
-//   = GRB_INFINITY;
-//   // fmt::print("Running cross validation with proportion = {} and weights =
+//   group_weights.size()); double best_alpha = GRB_INFINITY; double
+//   best_weight = GRB_INFINITY;
+//   // fmt::print("Running cross validation with proportion = {} and weights
+//   =
 //   // {}\n", proportion, group_weights);
 
 //   for (int index_alpha = 0; index_alpha < alphas.size(); ++index_alpha) {
 //     double likelihood = 0;
-//     model.alpha = alphas[index_alpha] * xt::ones<double>({model.R, model.R});
-//     model.weights =
-//         std::vector<double>(model.groups.size(), group_weights[index_alpha]);
+//     model.alpha = alphas[index_alpha] * xt::ones<double>({model.R,
+//     model.R}); model.weights =
+//         std::vector<double>(model.groups.size(),
+//         group_weights[index_alpha]);
 
 //     for (size_t index_obs = 0; index_obs < nb_observations_total;
 //     ++index_obs) {
@@ -1453,8 +1473,8 @@ CrossValidationResult cross_validation(Param &param, RegularizedModel &model,
 //       model.nb_observations = nb_observations_current;
 //       model.nb_arrivals = nb_calls_current;
 //       xt::xarray<double> result_x =
-//           projected_gradient_armijo_feasible<RegularizedModel>(model, param,
-//           x);
+//           projected_gradient_armijo_feasible<RegularizedModel>(model,
+//           param, x);
 //       xt::xarray<int> nb_calls_remaining =
 //           xt::zeros<int>({model.C, model.R, model.T});
 //       for (int c = 0; c < model.C; ++c) {
@@ -1479,7 +1499,7 @@ CrossValidationResult cross_validation(Param &param, RegularizedModel &model,
 //   }
 // }
 
-AppParameters load_options(int argc, char *argv[], po::variables_map &vm) {
+AppParameters load_options(int argc, char* argv[], po::variables_map& vm) {
   std::string config_file;
   // Declare a group of options that will be
   // allowed only on command line
@@ -1522,7 +1542,8 @@ AppParameters load_options(int argc, char *argv[], po::variables_map &vm) {
       "set, cv_proportion and "
       "cv_weights_file must also be set.")(
       "algorithm,A", po::value<std::string>()->default_value("feasible"),
-      "Specifies the projected gradient algorithm. Default = feasible. Options "
+      "Specifies the projected gradient algorithm. Default = feasible. "
+      "Options "
       "are feasible (projected gradient along the feasible region) and "
       "boundary (projected gradient along the boundary).")(
       "info_file,i", po::value<std::string>()->default_value(""),
@@ -1533,7 +1554,8 @@ AppParameters load_options(int argc, char *argv[], po::variables_map &vm) {
       "neighbors_file,n", po::value<std::string>()->default_value(""),
       "Path to file with neighbors data. Default = ''")(
       "alpha_regions_file", po::value<std::string>()->default_value(""),
-      "Path to file containing weight matrix for space regularization. Default "
+      "Path to file containing weight matrix for space regularization. "
+      "Default "
       "= ''                ")(
       "time_groups_file", po::value<std::string>()->default_value("groups.txt"),
       "Path to file containing time groups information.")(
@@ -1543,7 +1565,8 @@ AppParameters load_options(int argc, char *argv[], po::variables_map &vm) {
       "duration,d", po::value<double>()->default_value(1.0),
       "Duration of each period")(
       "cv_weights_file,W", po::value<std::string>()->default_value(""),
-      "Path to file with weights that must be tested. Weights must be provided "
+      "Path to file with weights that must be tested. Weights must be "
+      "provided "
       "in one line, separated by spaces. Default = ''")(
       "output_file,O", po::value<std::string>()->default_value("output.txt"),
       "Path where to write output. Default = output.txt")(
