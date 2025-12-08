@@ -158,9 +158,9 @@ plt.plot([t for t in range(T)], stats_est_rect.mean_total,label=f"Regularized Re
 #          color=COLORS[1], linestyle=LINES[1])
 plt.plot([t for t in range(T)], stats_est_district.mean_total, label="Regularized District",
          color=COLORS[1], linestyle=LINES[1])
-plt.plot([t for t in range(T)], stats_pop_rect.mean_total,label=f"Covariates Rectangular",
+plt.plot([t for t in range(T)], stats_pop_rect.mean_total,label=f"Population Rectangular",
          color=COLORS[2], linestyle=LINES[2])
-plt.plot([t for t in range(T)], stats_pop_district.mean_total,label=f"Covariates District",
+plt.plot([t for t in range(T)], stats_pop_district.mean_total,label=f"Population District",
          color=COLORS[3], linestyle=LINES[3])
 plt.legend()
 plt.xlabel("Time")
