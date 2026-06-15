@@ -231,3 +231,6 @@ Missing_Data/results/conf_intervals/c2_r75.png
 Missing_Data.7z
 missing
 Missing_Data/missing
+Replication/__pycache__/generate_hex_rect.cpython-310.pyc
+Replication/__pycache__/replication_script.cpython-310.pyc
+Missing_Data/eventos_desagregados.csv

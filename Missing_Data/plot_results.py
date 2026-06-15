@@ -119,6 +119,10 @@ lam_emp_rect, lam_est_rect = read_model1(f"results/lambda_model1_R76_T48.txt", 7
 stats_emp_rect = Stats(lam_emp_rect)
 stats_est_rect = Stats(lam_est_rect)
 
+
+
+
+
 lam_emp_district, lam_est_district = read_model1(f"results/lambda_model1_R160_T48.txt", 160)
 stats_emp_district = Stats(lam_emp_district)
 stats_est_district = Stats(lam_est_district)
@@ -127,11 +131,17 @@ test_weights = [0]
 all_stats_rect = []
 all_stats_district = []
 for w in test_weights:
-    lam_rect = read_model2(f"results/lambda_model2_w{w}_R76_T48.txt", 76)
+    lam_rect = read_model2(f"results/lambda_model2_w{w}_R76_T48_old.txt", 76)
     all_stats_rect.append(Stats(lam_rect))
-    lam_district = read_model2(f"results/lambda_model2_w{w}_R160_T48.txt", 160)
+    lam_district = read_model2(f"results/lambda_model2_w{w}_R160_T48_old.txt", 160)
     all_stats_district.append(Stats(lam_district))
 
+#   cv_weights.push_back(0.00000);
+#   cv_weights.push_back(0.000001);
+#   cv_weights.push_back(0.000004);
+#   cv_weights.push_back(0.000006);
+#   cv_weights.push_back(0.000009);
+#   cv_weights.push_back(0.00001);
 test_weights = [0, 0.001, 0.005, 0.01, 0.03]
 
 all_stats = []
@@ -141,8 +151,10 @@ for w in test_weights:
     lam = read_model2(f"results/lambda_model2_w{w}.txt", 76)
     all_stats.append(Stats(lam))
     
-lam_cv = read_model2(f"results/lambda_model2_cv.txt", 160)
+lam_cv = read_model2(f"results/lambda_model2_cv_R76_T48.txt", 76)
 stats_cv = Stats(lam_cv)
+
+
 
 lam_pop_rect = read_model3(f"results/lambda_model3_R76_T48_old.txt", 76)
 stats_pop_rect = Stats(lam_pop_rect)
@@ -165,14 +177,13 @@ plt.plot([t for t in range(T)], stats_pop_district.mean_total,label=f"Population
 plt.legend()
 plt.xlabel("Time")
 plt.ylabel("Intensities")
-plt.savefig("results/model1_cv.pdf", bbox_inches="tight")
+plt.savefig("results/disc_comparison.pdf", bbox_inches="tight")
 plt.close()
-input()
 
 
 plt.plot(
     [t for t in range(T)],
-    stats_est.mean_total,
+    stats_est_rect.mean_total,
     label=f"W{0}",
     color=COLORS[0],
     linestyle=LINES[0],
@@ -190,6 +201,27 @@ plt.xlabel("Time")
 plt.ylabel("Intensities")
 plt.savefig("results/model1_weights.pdf", bbox_inches="tight")
 plt.close()
+
+
+# Plot stats_emp and stats_cv on the same graph
+plt.plot(
+    [t for t in range(T)],
+    stats_est_rect.mean_total,
+    label=f"Empirical",
+    color=COLORS[0],
+    linestyle=LINES[0],
+)
+plt.plot(
+    [t for t in range(T)],
+    stats_cv.mean_total,
+    label=f"Cross validation",
+    color=COLORS[1],
+    linestyle=LINES[1],
+)
+plt.legend()
+plt.xlabel("Time")
+plt.ylabel("Intensities")
+plt.savefig("results/model1_cv.pdf", bbox_inches="tight")
 
 # for i, w in enumerate(test_weights):
 #     plt.plot(

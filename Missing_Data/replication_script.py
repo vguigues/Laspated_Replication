@@ -16,10 +16,10 @@ import laspated as spated
 from shapely.geometry import Polygon, MultiPolygon, Point
 import sys
 
-def read_model1(path, R):
+def read_model1(path, C, R, Total_T):
     arq = open(path, "r")
-    lam_emp = np.zeros((C, R, T))
-    lam_est = np.zeros((C, R, T))
+    lam_emp = np.zeros((C, R, Total_T))
+    lam_est = np.zeros((C, R, Total_T))
     for line in arq.readlines():
         tokens = line.split()
         c = int(tokens[0])
@@ -33,10 +33,10 @@ def read_model1(path, R):
 
     return lam_emp, lam_est
 
-def read_p_model_1(path, R):
+def read_p_model_1(path, C, Total_T):
     arq = open(path, "r")
     p = float(arq.readline())
-    p_ct = np.zeros((C, T))
+    p_ct = np.zeros((C, Total_T))
     for line in arq.readlines():
         tokens = line.split()
         c = int(tokens[0])
@@ -47,10 +47,10 @@ def read_p_model_1(path, R):
 
     return p, p_ct
 
-def read_conf_intervals_model1(path):
+def read_conf_intervals_model1(path,C,R,Total_T):
     arq = open(path, "r")
-    conf_intervals = np.zeros((C, R, T, 2))
-    lam = np.zeros((C, R, T))
+    conf_intervals = np.zeros((C, R, Total_T, 2))
+    lam = np.zeros((C, R, Total_T))
     for line in arq.readlines():
         tokens = line.split()
         c = int(tokens[0])
@@ -65,8 +65,8 @@ def read_conf_intervals_model1(path):
 
     return conf_intervals, lam
 
-def read_model2(path,R):
-    lam = np.zeros((C, R, T))
+def read_model2(path,C, R, Total_T):
+    lam = np.zeros((C, R, Total_T))
     arq = open(path, "r")
     for line in arq.readlines():
         tokens = line.split()
@@ -79,9 +79,9 @@ def read_model2(path,R):
     return lam
 
 
-def read_model3(path, R):
+def read_model3(path, C, R, Total_T):
     arq = open(path, "r")
-    lam = np.zeros((C, R, T))
+    lam = np.zeros((C, R, Total_T))
     for line in arq.readlines():
         tokens = line.split()
         c = int(tokens[0])
@@ -105,6 +105,30 @@ def read_model4(path):
         lam[c, r, t] = val
     arq.close()
     return lam
+
+def write_empirical_estimation(arrivals_path, output_path, T, G, R, P, max_obs):
+    nb_arrivals = np.zeros((T, G, R, P), dtype=float)
+    with open(arrivals_path, "r") as arq:
+        for line in arq:
+            if line.strip() == "END":
+                break
+            tokens = line.split()
+            t = int(tokens[0])
+            g = int(tokens[1])
+            r = int(tokens[2])
+            p = int(tokens[3])
+            val = int(tokens[5])
+            nb_arrivals[t, g, r, p] += val
+
+    with open(output_path, "w") as arq:
+        arq.write(f"{T} {G} {R} {P} {max_obs}\n")
+        denom = max_obs * 0.5
+        for t in range(T):
+            for g in range(G):
+                for r in range(R):
+                    for p in range(P):
+                        emp = nb_arrivals[t, g, r, p] / denom
+                        arq.write(f"{t} {g} {r} {p} {emp}\n")
 
 class Stats(object):
     def __init__(self, lam):
@@ -188,6 +212,31 @@ def process_land_use():
     land_use = land_use[["subgroup_0", "subgroup_1", "subgroup_2", "geometry"]].copy()
     return land_use
 
+def write_samples_file(geo_discretization, output_path, num_samples=100, rng=None, max_attempts=10000):
+    if rng is None:
+        rng = np.random.default_rng()
+
+    geo_disc = geo_discretization.copy()
+    if "id" in geo_disc.columns:
+        geo_disc = geo_disc.sort_values("id")
+
+    with open(output_path, "w") as arq:
+        for idx, row in geo_disc.iterrows():
+            zone_id = row["id"] if "id" in geo_disc.columns else idx
+            geometry = row["geometry"]
+            minx, miny, maxx, maxy = geometry.bounds
+            samples_written = 0
+            attempts = 0
+            while samples_written < num_samples and attempts < max_attempts:
+                lon = rng.uniform(minx, maxx)
+                lat = rng.uniform(miny, maxy)
+                if geometry.contains(Point(lon, lat)):
+                    arq.write(f"{zone_id} {samples_written} {lon} {lat}\n")
+                    samples_written += 1
+                attempts += 1
+            if samples_written < num_samples:
+                raise ValueError(f"Could not sample {num_samples} points for zone {zone_id}")
+
 def generate_discretization(base_folder, time_tuple):
     app = spated.DataAggregator(crs="epsg:4326")
     events = pd.read_csv(r"sorted_events.csv", encoding="ISO-8859-1", sep=",")
@@ -242,12 +291,25 @@ def generate_discretization(base_folder, time_tuple):
     app.write_arrivals(f"{base_folder}/arrivals.dat")
     app.write_regions(f"{base_folder}/neighbors.dat")
     app.write_info(obs_index_column="dow", path=f"{base_folder}/info.dat")
+    write_samples_file(app.geo_discretization, f"{base_folder}/samples.dat")
+    T = time_tuple[1] // time_tuple[0]
+    write_empirical_estimation(
+        f"{base_folder}/arrivals.dat",
+        f"{base_folder}/empirical_estimation.dat",
+        T,
+        7,
+        R,
+        3,
+        max_obs,
+    )
     
     num_regions = int(np.max(app.events_data["gdiscr"]) + 1)
     print(f"Wrote discretization files for disc {base_folder}. {num_regions} regions")
     
-    return num_regions
+    return app, num_regions
     
+
+
 tic = time.perf_counter()
 
 nb_obs = [104, 104, 104, 104, 105, 105, 105]
@@ -258,15 +320,18 @@ max_obs = np.max(nb_obs)
 
 # discs = [("Rect10x10", (30, 60 * 24)), ("Rect10x10_1h", (60, 60 * 24)), ("District", (30, 60 * 24)), ("District_1h", (60, 60 * 24))]    
 # discs = [("Rect10x10_1h", (60, 60 * 24))] 
-discs = [("District_1h", (60, 60 * 24))]   
+# discs = [("District_1h", (60, 60 * 24))]
+# discs = [("Rect10x10", (30, 60 * 24))]
+discs = [("Hex7", (30, 60 * 24))]  
 
 
 for disc in discs:
     base_folder, time_tuple = disc
     print(f"Generating discretization for {base_folder}...")
-    R = generate_discretization(base_folder, time_tuple)
+    app, R = generate_discretization(base_folder, time_tuple)
     T = time_tuple[1] // time_tuple[0]
     D = 7
+    Total_T = T * D
     C = 3
     
     try:
@@ -296,15 +361,15 @@ for disc in discs:
         print(f"Error with C++ experiments")
         exit(1)
         
-    print(f"Plotting results for {base_folder}...")
-    lam_no_miss_1, lam_miss_1 = read_model1(f"results/lambda_model1_R{R}_T{T}.txt", R)
+    print(f"Plotting results for {base_folder}, R = {R}, T = {T}...")
+    lam_no_miss_1, lam_miss_1 = read_model1(f"results/lambda_model1_R{R}_T{T}.txt",C, R, Total_T)
     stats_no_miss_model1 = Stats(lam_no_miss_1)
     stats_miss_model1 = Stats(lam_miss_1)
-    p, p_ct = read_p_model_1(f"results/p_model1_R{R}_T{T}.txt", R)
-    conf_intervals_model1, lam_model1 = read_conf_intervals_model1(f"results/conf_intervals_model1_R{R}_T{T}.txt")
+    p, p_ct = read_p_model_1(f"results/p_model1_R{R}_T{T}.txt",C, Total_T)
+    conf_intervals_model1, lam_model1 = read_conf_intervals_model1(f"results/conf_intervals_model1_R{R}_T{T}.txt",C, R, Total_T)
     
     # Plot p_ct for each c
-    time_index = [t for t in range(T)]
+    time_index = [t for t in range(Total_T)]
     plt.figure(figsize=(10, 6))
     plt.plot(time_index, p_ct[0, :], label="High priority calls", color="black", linestyle="solid")
     plt.plot(time_index, p_ct[1, :], label="Intermediate priority calls", color="red", linestyle="--")
@@ -330,7 +395,55 @@ for disc in discs:
         plt.ylabel("Intensity")
         plt.savefig(f"{base_folder}/conf_intervals_model1_c{c}_R{R}_T{T}.pdf", bbox_inches="tight")
         plt.close()
+        
+    # Plot heatmaps for stats_no_miss_model1 and stats_miss_model1 given the app.geo_discretization
+    geo_disc = app.geo_discretization
+    geo_disc = geo_disc.copy()
+    sum_r_no_miss = np.sum(lam_no_miss_1, axis=(0, 2))
+    sum_r_miss = np.sum(lam_miss_1, axis=(0,2))
+    # assign each index i of sum_r_no_miss and sum_r_miss to the corresponding geo_disc id
+    geo_disc["mean_no_miss"] = 0
+    geo_disc["mean_miss"] = 0
+    for i in range(len(geo_disc)):
+        geo_disc.at[i, "mean_no_miss"] = sum_r_no_miss[geo_disc.at[i, "id"]]
+        geo_disc.at[i, "mean_miss"] = sum_r_miss[geo_disc.at[i, "id"]]
     
+    vmin = np.nanmin([geo_disc["mean_no_miss"].min(), geo_disc["mean_miss"].min()])
+    vmax = np.nanmax([geo_disc["mean_no_miss"].max(), geo_disc["mean_miss"].max()])
+    # Save uncorrected heatmap
+    fig, ax = plt.subplots(figsize=(8, 7))
+    geo_disc.plot(
+        column="mean_no_miss",
+        cmap="Reds",
+        vmin=vmin,
+        vmax=vmax,
+        linewidth=0.2,
+        edgecolor="0.8",
+        legend=True,
+        ax=ax,
+    )
+    ax.axis("off")
+    plt.tight_layout()
+    plt.savefig(f"results/heatmap_model1_no_miss_R{R}_T{T}.pdf", bbox_inches="tight")
+    plt.close()
+
+    # Save corrected heatmap
+    fig, ax = plt.subplots(figsize=(8, 7))
+    geo_disc.plot(
+        column="mean_miss",
+        cmap="Reds",
+        vmin=vmin,
+        vmax=vmax,
+        linewidth=0.2,
+        edgecolor="0.8",
+        legend=True,
+        ax=ax,
+    )
+    ax.axis("off")
+    plt.tight_layout()
+    plt.savefig(f"results/heatmap_model1_miss_R{R}_T{T}.pdf", bbox_inches="tight")
+    plt.close()
+   
     # Plot mean_total, q.05_total and q.95_total for each model no_miss and miss
     plt.figure(figsize=(10, 6))
     plt.plot(time_index, stats_no_miss_model1.mean_total, label="Mean Corrected", 
@@ -369,7 +482,7 @@ for disc in discs:
     # Plot mean_total of model 2 for each test weight
     plt.figure(figsize=(10, 6))
     for i,w in enumerate(test_weights):
-        lam_model2 = read_model2(f"results/lambda_model2_w{w}_R{R}_T{T}.txt", R)
+        lam_model2 = read_model2(f"results/lambda_model2_w{w}_R{R}_T{T}.txt", C, R, Total_T)
         stats_model2 = Stats(lam_model2)
         plt.plot(time_index, stats_model2.mean_total, label=f"w = {w}", color=colors[i % 2], linestyle=styles[i])
     plt.legend()
@@ -378,7 +491,7 @@ for disc in discs:
     plt.savefig(f"{base_folder}/plot_total_model2_R{R}_T{T}.pdf", bbox_inches="tight")
     plt.close()
     
-    lam_model2_cv = read_model2(f"results/lambda_model2_cv_R{R}_T{T}.txt", R)
+    lam_model2_cv = read_model2(f"results/lambda_model2_cv_R{R}_T{T}.txt", C, R, Total_T)
     stats_model2_cv = Stats(lam_model2_cv)
     # plot no_missing and cross validation for model 2
     plt.figure(figsize=(10, 6))
@@ -389,6 +502,9 @@ for disc in discs:
     plt.ylabel("Intensities")
     plt.savefig(f"{base_folder}/plot_total_model2_cv_R{R}_T{T}.pdf", bbox_inches="tight")
     plt.close()
+    
+    
+    
     
 # Plot comparison of discretizations
 lam_no_miss_rect, lam_miss_rect = read_model1(f"results/lambda_model1_R76_T48.txt", 76)
@@ -414,15 +530,12 @@ all_stats = []
 
 
 for w in test_weights:
-    lam = read_model2(f"results/lambda_model2_w{w}.txt", 76)
+    lam = read_model2(f"results/lambda_model2_w{w}.txt", 3, 76, 336)
     all_stats.append(Stats(lam))
     
-lam_cv = read_model2(f"results/lambda_model2_cv_R{R}_T{T}.txt", 160)
-stats_cv = Stats(lam_cv)
-
-lam_pop_rect = read_model3(f"results/lambda_model3_R76_T48_old.txt", 76)
+lam_pop_rect = read_model3(f"results/lambda_model3_R76_T48_old.txt",3 , 76, 336)
 stats_pop_rect = Stats(lam_pop_rect)
-lam_pop_district = read_model3(f"results/lambda_model3_R160_T48_old.txt", 160)
+lam_pop_district = read_model3(f"results/lambda_model3_R160_T48_old.txt", 3, 160, 336)
 stats_pop_district = Stats(lam_pop_district)
 COLORS = ["black", "red", "orange", "blue"]
 LINES = ["solid", "dotted", "dashed", (0, (3, 1, 1, 1)), (0, (1, 1))]
@@ -430,8 +543,6 @@ print(f"len all_stats = {len(all_stats)}")
 print(f"Shape 0 = {all_stats[0].mean_total}, shape 2 = {all_stats[2].mean_total}")
 plt.plot([t for t in range(T)], stats_miss_rect.mean_total,label=f"Regularized Rectangular", 
          color=COLORS[0], linestyle=LINES[0])
-# plt.plot([t for t in range(T)], stats_cv.mean_total,label=f"Cross validation Rectangular", 
-#          color=COLORS[1], linestyle=LINES[1])
 plt.plot([t for t in range(T)], stats_miss_district.mean_total, label="Regularized District",
          color=COLORS[1], linestyle=LINES[1])
 plt.plot([t for t in range(T)], stats_pop_rect.mean_total,label=f"Covariates Rectangular",
@@ -443,4 +554,3 @@ plt.xlabel("Time")
 plt.ylabel("Intensities")
 plt.savefig("results/model1_cv.pdf", bbox_inches="tight")
 plt.close()
-input()

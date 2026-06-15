@@ -25,6 +25,12 @@ class AppParams {
   std::string mn_samples_file;
 };
 
+xt::xarray<double> measure_models_accuracy(
+    AppParams& app_params, xt::xarray<int>& sample,
+    xt::xarray<int>& sample_missing_arrivals, xt::xarray<double>& durations,
+    std::vector<std::vector<int>>& neighbors, std::vector<double>& pop,
+    xt::xarray<double>& regressors);
+
 xt::xarray<double> get_confidence_intervals(
     xt::xarray<int>& nb_observations, xt::xarray<int>& nb_arrivals,
     xt::xarray<int>& nb_missing_arrivals, xt::xarray<double>& durations,
@@ -397,11 +403,12 @@ void set_groups(std::vector<std::vector<std::pair<int, int>>>& groups, ulong D,
   }
 }
 
-void run_regularized_model(
+xt::xarray<double> run_regularized_model(
     AppParams& app_params, xt::xarray<int>& nb_observations,
     xt::xarray<int>& nb_arrivals, xt::xarray<int>& nb_missing_arrivals,
     xt::xarray<int>& samples, xt::xarray<int>& samples_missing_arrivals,
-    xt::xarray<double>& durations, std::vector<std::vector<int>>& neighbors) {
+    xt::xarray<double>& durations, std::vector<std::vector<int>>& neighbors,
+    const std::vector<int>& daily_obs) {
   int nb_groups = 8;
   ulong C = nb_observations.shape(0);
   ulong D = nb_observations.shape(1);
@@ -468,32 +475,33 @@ void run_regularized_model(
 
   // std::vector<double> cv_weights = app_params.test_weights;
   std::vector<double> cv_weights;
+  // cv_weights.push_back(0.00000);
   cv_weights.push_back(0.000001);
   cv_weights.push_back(0.000004);
   cv_weights.push_back(0.000006);
   cv_weights.push_back(0.000009);
   cv_weights.push_back(0.00001);
+  param.cv_proportion = 0.2;
 
   std::sort(cv_weights.begin(), cv_weights.end());
   for (size_t i = 0; i < cv_weights.size(); ++i) {
     std::cout << "cv_weight[" << i << "] = " << cv_weights[i] << "\n";
   }
   laspated::CrossValidationResult result = cross_validation(
-      param, m1, samples, samples_missing_arrivals, cv_weights);
+      param, m1, samples, samples_missing_arrivals, cv_weights, daily_obs);
 
   double best_w = result.weight;
   std::cout << "Best weight = " << best_w << "\n";
   std::cout << "Run time cv = " << result.wall_time << " s\n";
+  return result.lambda;
 }
 
-void run_model_population(AppParams& app_params,
-                          xt::xarray<int>& nb_observations,
-                          xt::xarray<int>& nb_arrivals,
-                          xt::xarray<int>& nb_missing_arrivals,
-                          xt::xarray<double>& durations,
-                          xt::xarray<int>& sample,
-                          xt::xarray<int>& sample_missing_arrivals,
-                          std::vector<double>& pop, ResultModel1& result) {
+xt::xarray<double> run_model_population(
+    AppParams& app_params, xt::xarray<int>& nb_observations,
+    xt::xarray<int>& nb_arrivals, xt::xarray<int>& nb_missing_arrivals,
+    xt::xarray<double>& durations, xt::xarray<int>& sample,
+    xt::xarray<int>& sample_missing_arrivals, std::vector<double>& pop,
+    ResultModel1& result) {
   ulong C = nb_observations.shape(0);
   ulong D = nb_observations.shape(1);
   ulong T = nb_observations.shape(2);
@@ -574,6 +582,78 @@ void run_model_population(AppParams& app_params,
     }
   }
   lambda_model2_file.close();
+  return lambda;
+}
+
+xt::xarray<double> run_model_arrival_covariates(
+    AppParams& app_params, xt::xarray<int>& nb_observations,
+    xt::xarray<int>& nb_arrivals, xt::xarray<int>& nb_missing_arrivals,
+    xt::xarray<double>& durations, xt::xarray<double>& regressors,
+    ResultModel1& result) {
+  ulong C = nb_observations.shape(0);
+  ulong D = nb_observations.shape(1);
+  ulong T = nb_observations.shape(2);
+  ulong R = nb_observations.shape(3);
+  ulong nb_regressors = regressors.shape(0);
+
+  laspated::Param param;
+  param.EPS = app_params.EPS;
+  param.sigma = app_params.sigma;
+  param.lower_lambda = app_params.lower_lambda;
+  param.max_iter = app_params.max_iter;
+  param.beta_bar = app_params.beta_bar;
+
+  MissingLambdaArrivalCovariatesModel m4(nb_observations, nb_arrivals,
+                                         nb_missing_arrivals, durations,
+                                         regressors, param);
+
+  xt::xarray<double> x0 =
+      param.EPS * xt::ones<double>({C, D, T, nb_regressors});
+
+  std::cout << "Beginning arrival covariates model\n";
+  auto t0 = std::chrono::high_resolution_clock::now();
+  xt::xarray<double> beta = laspated::projected_gradient_armijo_feasible<
+      MissingLambdaArrivalCovariatesModel>(m4, param, x0);
+  auto dt = std::chrono::high_resolution_clock::now() - t0;
+  double run_time =
+      std::chrono::duration_cast<std::chrono::milliseconds>(dt).count();
+  std::cout << "Run time model with arrival covariates (ms): " << run_time
+            << "\n";
+
+  xt::xarray<double> lambda = xt::zeros<double>({C, D, T, R});
+  for (int c = 0; c < C; ++c) {
+    for (int d = 0; d < D; ++d) {
+      for (int t = 0; t < T; ++t) {
+        double dur = std::max(durations(d, t), param.EPS);
+        for (int r = 0; r < R; ++r) {
+          double mu = 0.0;
+          for (int j = 0; j < nb_regressors; ++j) {
+            mu += beta(c, d, t, j) * regressors(j, r);
+          }
+          mu = std::max(mu, param.EPS);
+          lambda(c, d, t, r) = mu / dur;
+        }
+      }
+    }
+  }
+
+  std::stringstream out_filename;
+  out_filename << "results/lambda_model4_R" << R << "_T" << T << ".txt";
+  std::ofstream lambda_model4_file(out_filename.str(), std::ios::out);
+  for (int c = 0; c < C; ++c) {
+    for (int d = 0; d < D; ++d) {
+      for (int t = 0; t < T; ++t) {
+        int ind_t = d * T + t;
+        for (int r = 0; r < R; ++r) {
+          lambda_model4_file << c << " " << r << " " << ind_t << " "
+                             << result.lambda_missing(c, d, t, r) << " "
+                             << lambda(c, d, t, r) << "\n";
+        }
+      }
+    }
+  }
+  lambda_model4_file.close();
+  return lambda;
 }
 
 void run_models_missing_location(AppParams& app_params) {
@@ -599,6 +679,7 @@ void run_models_missing_location(AppParams& app_params) {
   xt::xarray<int> nb_arrivals = xt::zeros<int>({C, D, T, R});
   std::string aux_str;
   std::ifstream arrivals_file(app_params.arrivals_file, std::ios::in);
+  std::cout << "Arrivals file: " << app_params.arrivals_file << "\n";
   do {
     getline(arrivals_file, aux_str);
     if (aux_str == "END") {
@@ -613,11 +694,12 @@ void run_models_missing_location(AppParams& app_params) {
                 << ", val = " << val << "\n";
       std::cin.get();
     }
-    sample(c, d, t, r, j) = val;
+    sample(c, d, t, r, j) += val;
     nb_observations(c, d, t, r) += 1;
     nb_arrivals(c, d, t, r) += val;
   } while (true);
   arrivals_file.close();
+
   printf("Read arrivals_file\n");
 
   for (int c = 0; c < C; ++c) {
@@ -679,7 +761,7 @@ void run_models_missing_location(AppParams& app_params) {
     int t, c, j, val;
     ss >> t >> d >> r >> c >> j >> val;
 
-    sample_missing_arrivals(c, static_cast<int>(d), t, j) = val;
+    sample_missing_arrivals(c, static_cast<int>(d), t, j) += val;
     nb_missing_arrivals(c, static_cast<int>(d), t) += val;
   } while (true);
   missing_file.close();
@@ -699,7 +781,7 @@ void run_models_missing_location(AppParams& app_params) {
     std::cout << std::flush;
     run_regularized_model(app_params, nb_observations, nb_arrivals,
                           nb_missing_arrivals, sample, sample_missing_arrivals,
-                          durations, neighbors);
+                          durations, neighbors, daily_obs);
     printf("Finished Regularized model\n");
     std::cout << std::flush;
     run_model_population(app_params, nb_observations, nb_arrivals,
@@ -719,7 +801,7 @@ void run_models_missing_location(AppParams& app_params) {
   } else if (app_params.model == "regularized") {
     run_regularized_model(app_params, nb_observations, nb_arrivals,
                           nb_missing_arrivals, sample, sample_missing_arrivals,
-                          durations, neighbors);
+                          durations, neighbors, daily_obs);
     printf("Finished Regularized model\n");
   } else if (app_params.model == "population") {
     auto result = run_model1(nb_observations, nb_arrivals, nb_missing_arrivals,
@@ -728,7 +810,313 @@ void run_models_missing_location(AppParams& app_params) {
                          nb_missing_arrivals, durations, sample,
                          sample_missing_arrivals, pop, result);
     printf("Finished population model\n");
+  } else if (app_params.model == "accuracy") {
+    printf("Measuring accuracy:\n");
+    std::cout << std::flush;
+    auto result =
+        measure_models_accuracy(app_params, sample, sample_missing_arrivals,
+                                durations, neighbors, pop, regressors);
+    printf("Finished measurements.\n");
   }
+}
+
+double MSE_models(xt::xarray<double>& sum_nb_arrivals,
+                  xt::xarray<double>& sum_lambda_model1,
+                  xt::xarray<int>& month_sum_nb_arrivals,
+                  xt::xarray<double>& durations,
+                  xt::xarray<int>& nb_observations) {
+  ulong C = sum_nb_arrivals.shape(0);
+  ulong D = sum_nb_arrivals.shape(1);
+  ulong T = sum_nb_arrivals.shape(2);
+  double mse = 0.0;
+  for (ulong c = 0; c < C; ++c) {
+    for (ulong d = 0; d < D; ++d) {
+      for (ulong t = 0; t < T; ++t) {
+        double pred = sum_lambda_model1(c, d, t);
+        double true_val = month_sum_nb_arrivals(c, d, t);
+        mse += (pred - true_val) * (pred - true_val);
+      }
+    }
+  }
+  mse /= (C * D * T);
+  return mse;
+}
+
+xt::xarray<double> measure_models_accuracy(
+    AppParams& app_params, xt::xarray<int>& sample,
+    xt::xarray<int>& sample_missing_arrivals, xt::xarray<double>& durations,
+    std::vector<std::vector<int>>& neighbors, std::vector<double>& pop,
+    xt::xarray<double>& regressors) {
+  ulong C = sample.shape(0);
+  ulong D = sample.shape(1);
+  ulong T = sample.shape(2);
+  ulong R = sample.shape(3);
+  ulong nb_obs = sample.shape(4);
+  std::vector<int> month_durations{4, 4, 5, 4, 4, 5, 4, 5, 4, 4, 5, 4,
+                                   4, 4, 5, 4, 4, 5, 4, 5, 4, 4, 5, 4};
+  // std::vector<int> month_durations{8, 9, 9, 9, 8, 9, 8, 9, 9, 9, 8, 9};
+  ulong nb_months = month_durations.size();
+  ulong total_month_weeks = 0;
+  for (int m_len : month_durations) {
+    total_month_weeks += m_len;
+  }
+  if (total_month_weeks > nb_obs) {
+    throw std::invalid_argument(
+        "month_durations sum is larger than number of observations.");
+  }
+  int nb_groups = 8;
+  std::vector<std::vector<std::pair<int, int>>> groups(
+      nb_groups, std::vector<std::pair<int, int>>());
+
+  std::vector<double> test_weights = app_params.test_weights;
+  laspated::Param param;
+  param.EPS = app_params.EPS;
+  param.sigma = app_params.sigma;
+  param.lower_lambda = app_params.lower_lambda;
+  param.max_iter = app_params.max_iter;
+  param.beta_bar = app_params.beta_bar;
+  param.max_iter = 100;
+
+  xt::xarray<double> mse_by_month = xt::zeros<double>({nb_months});
+  size_t month_start = 0;
+
+  std::ofstream accuracy_results_file("results/accuracy_results.txt",
+                                      std::ios::out);
+
+  // std::set<int> distinct_nb_obs;
+  // for (ulong c = 0; c < C; ++c) {
+  //   for (ulong d = 0; d < D; ++d) {
+  //     for (ulong t = 0; t < T; ++t) {
+  //       for (ulong r = 0; r < R; ++r) {
+  //         for (ulong j = 0; j < nb_obs; ++j) {
+  //           printf("Sample %lu %lu %lu %lu %lu = %d\n", c, d, t, r, j,
+  //                  sample(c, d, t, r, j));
+  //         }
+  //         for (ulong j = 0; j < nb_obs; ++j) {
+  //           printf("Sample missing %lu %lu %lu %lu = %d\n", c, d, t, j,
+  //                  sample_missing_arrivals(c, d, t, 0));
+  //         }
+  //       }
+  //       std::cin.get();
+  //     }
+  //   }
+  // }
+  // std::cin.get();
+  for (ulong m = 0; m < nb_months; ++m) {
+    size_t month_length = month_durations[m];
+    size_t month_end = month_start + month_length;
+    xt::xarray<int> month_nb_observations =
+        month_length * xt::ones<int>({C, D, T});
+    xt::xarray<double> emp_rate_month = xt::zeros<double>({C, D, T});
+    for (ulong c = 0; c < C; ++c) {
+      for (ulong d = 0; d < D; ++d) {
+        for (ulong t = 0; t < T; ++t) {
+          for (size_t obs_index = month_start; obs_index < month_end;
+               ++obs_index) {
+            int sum_sample = 0;
+
+            for (ulong r = 0; r < R; ++r) {
+              emp_rate_month(c, d, t) += sample(c, d, t, r, obs_index);
+              sum_sample += sample(c, d, t, r, obs_index);
+            }
+            emp_rate_month(c, d, t) +=
+                sample_missing_arrivals(c, d, t, obs_index);
+            // printf(
+            //     "Processing month %lu, obs_index = %lu, sum_sample = %d, "
+            //     "sample_missing = %d, month_nb_obs = %d, durations = %f\n",
+            //     m, obs_index, sum_sample,
+            //     sample_missing_arrivals(c, d, t, obs_index),
+            //     month_nb_observations(c, d, t, 0), durations(d, t));
+          }
+          emp_rate_month(c, d, t) =
+              emp_rate_month(c, d, t) /
+              (static_cast<double>(month_nb_observations(c, d, t)) *
+               durations(d, t));
+
+          // printf("Emp rate %lu %lu %lu month_start = %d, end = %d = %f\n", c,
+          // d,
+          //        t, month_start, month_end, emp_rate_month(c, d, t));
+        }
+      }
+    }
+
+    // std::cin.get();
+    xt::xarray<int> calibration_nb_observations =
+        (nb_obs - month_length) * xt::ones<int>({C, D, T, R});
+    xt::xarray<int> calibration_nb_arrivals = xt::zeros<int>({C, D, T, R});
+    xt::xarray<int> calibration_nb_missing_arrivals = xt::zeros<int>({C, D, T});
+    int count = 0;
+    for (size_t obs_index = 0; obs_index < month_start; ++obs_index) {
+      for (ulong c = 0; c < C; ++c) {
+        for (ulong d = 0; d < D; ++d) {
+          for (ulong t = 0; t < T; ++t) {
+            for (ulong r = 0; r < R; ++r) {
+              calibration_nb_arrivals(c, d, t, r) +=
+                  sample(c, d, t, r, obs_index);
+            }
+            calibration_nb_missing_arrivals(c, d, t) +=
+                sample_missing_arrivals(c, d, t, obs_index);
+          }
+        }
+      }
+    }
+    for (size_t obs_index = month_end; obs_index < nb_obs; ++obs_index) {
+      for (ulong c = 0; c < C; ++c) {
+        for (ulong d = 0; d < D; ++d) {
+          for (ulong t = 0; t < T; ++t) {
+            for (ulong r = 0; r < R; ++r) {
+              calibration_nb_arrivals(c, d, t, r) +=
+                  sample(c, d, t, r, obs_index);
+            }
+            calibration_nb_missing_arrivals(c, d, t) +=
+                sample_missing_arrivals(c, d, t, obs_index);
+          }
+        }
+      }
+    }
+
+    for (ulong c = 0; c < C; ++c) {
+      for (ulong d = 0; d < D; ++d) {
+        for (ulong t = 0; t < T; ++t) {
+          double sum_arrivals = 0.0;
+          for (ulong r = 0; r < R; ++r) {
+            // printf("Arrivals %lu %lu %lu %lu = %d\n", c, d, t, r,
+            //        calibration_nb_arrivals(c, d, t, r));
+            sum_arrivals +=
+                static_cast<double>(calibration_nb_arrivals(c, d, t, r));
+          }
+          sum_arrivals += calibration_nb_missing_arrivals(c, d, t);
+          // printf(
+          //     "Arrivals missing %lu %lu %lu = %d | Sum arrivals no missing =
+          //     "
+          //     "%d | nb_obs = %d | emp_rate = "
+          //     "%f | emp_rate_month = %f\n",
+          //     c, d, t, calibration_nb_missing_arrivals(c, d, t),
+          //     sum_arrivals - calibration_nb_missing_arrivals(c, d, t),
+          //     calibration_nb_observations(c, d, t, 0),
+          //     sum_arrivals /
+          //         (static_cast<double>(calibration_nb_observations(c, d, t,
+          //         0) *
+          //                              durations(d, t))),
+          // emp_rate_month(c, d, t));
+        }
+      }
+    }
+    // std::cin.get();
+
+    ResultModel1 model1_result =
+        run_model1(calibration_nb_observations, calibration_nb_arrivals,
+                   calibration_nb_missing_arrivals, durations);
+    xt::xarray<double> sum_lambda_model1 = xt::zeros<double>({C, D, T});
+    for (ulong c = 0; c < C; ++c) {
+      for (ulong d = 0; d < D; ++d) {
+        for (ulong t = 0; t < T; ++t) {
+          for (ulong r = 0; r < R; ++r) {
+            sum_lambda_model1(c, d, t) +=
+                model1_result.lambda_missing(c, d, t, r);
+          }
+          printf(
+              "model1: c = %lu, d = %lu, t = %lu, est = %f, emp = %f, "
+              "diff_square = %f\n",
+              c, d, t, sum_lambda_model1(c, d, t), emp_rate_month(c, d, t),
+              pow(sum_lambda_model1(c, d, t) - emp_rate_month(c, d, t), 2));
+        }
+      }
+    }
+    // std::cin.get();
+
+    auto mse_model1 = MSE(sum_lambda_model1, emp_rate_month);
+    for (ulong c = 0; c < C; ++c) {
+      for (ulong d = 0; d < D; ++d) {
+        for (ulong t = 0; t < T; ++t) {
+          accuracy_results_file << 1 << " " << m << " " << c << " " << d << " "
+                                << t << " " << mse_model1(c, d, t) << "\n";
+        }
+      }
+    }
+
+    std::vector<int> calibration_daily_obs(D, 0);
+    for (ulong d = 0; d < D; ++d) {
+      calibration_daily_obs[d] = calibration_nb_observations(0, d, 0, 0);
+    }
+    auto result_regularized = run_regularized_model(
+        app_params, calibration_nb_observations, calibration_nb_arrivals,
+        calibration_nb_missing_arrivals, sample, sample_missing_arrivals,
+        durations, neighbors, calibration_daily_obs);
+    xt::xarray<double> sum_regularized = xt::zeros<double>({C, D, T});
+    for (ulong c = 0; c < C; ++c) {
+      for (ulong d = 0; d < D; ++d) {
+        for (ulong t = 0; t < T; ++t) {
+          for (ulong r = 0; r < R; ++r) {
+            sum_regularized(c, d, t) += result_regularized(c, d, t, r);
+          }
+        }
+      }
+    }
+    auto mse_regularized = MSE(sum_regularized, emp_rate_month);
+    for (ulong c = 0; c < C; ++c) {
+      for (ulong d = 0; d < D; ++d) {
+        for (ulong t = 0; t < T; ++t) {
+          accuracy_results_file << 2 << " " << m << " " << c << " " << d << " "
+                                << t << " " << mse_regularized(c, d, t) << "\n";
+        }
+      }
+    }
+
+    auto result_arrival_covariates = run_model_arrival_covariates(
+        app_params, calibration_nb_observations, calibration_nb_arrivals,
+        calibration_nb_missing_arrivals, durations, regressors, model1_result);
+    xt::xarray<double> sum_arrival_covariates = xt::zeros<double>({C, D, T});
+    for (ulong c = 0; c < C; ++c) {
+      for (ulong d = 0; d < D; ++d) {
+        for (ulong t = 0; t < T; ++t) {
+          for (ulong r = 0; r < R; ++r) {
+            sum_arrival_covariates(c, d, t) +=
+                result_arrival_covariates(c, d, t, r);
+          }
+        }
+      }
+    }
+    auto mse_arrival_covariates = MSE(sum_arrival_covariates, emp_rate_month);
+    for (ulong c = 0; c < C; ++c) {
+      for (ulong d = 0; d < D; ++d) {
+        for (ulong t = 0; t < T; ++t) {
+          accuracy_results_file << 3 << " " << m << " " << c << " " << d << " "
+                                << t << " " << mse_arrival_covariates(c, d, t)
+                                << "\n";
+        }
+      }
+    }
+
+    // auto result_population = run_model_population(
+    //     app_params, calibration_nb_observations, calibration_nb_arrivals,
+    //     calibration_nb_missing_arrivals, durations, sample,
+    //     sample_missing_arrivals, pop, model1_result);
+    // xt::xarray<double> sum_population = xt::zeros<double>({C, D, T});
+    // for (ulong c = 0; c < C; ++c) {
+    //   for (ulong d = 0; d < D; ++d) {
+    //     for (ulong t = 0; t < T; ++t) {
+    //       for (ulong r = 0; r < R; ++r) {
+    //         sum_population(c, d, t) += result_population(c, d, t, r);
+    //       }
+    //     }
+    //   }
+    // }
+    // auto mse_population = MSE(sum_population, emp_rate_month);
+    // for (ulong c = 0; c < C; ++c) {
+    //   for (ulong d = 0; d < D; ++d) {
+    //     for (ulong t = 0; t < T; ++t) {
+    //       accuracy_results_file << 4 << " " << m << " " << c << " " << d <<
+    //       ""
+    //                             << t << " " << mse_population(c, d, t) <<
+    //                             "\n";
+    //     }
+    //   }
+    // }
+    month_start = month_end;
+  }
+  accuracy_results_file.close();
+  return mse_by_month;
 }
 
 xt::xarray<double> missing_time_analytical_p(
@@ -789,7 +1177,8 @@ missing_time_analytical_lambdas(AppParams& app_params,
               ((m0_cdr + m1_cdr) / m1_cdr) * (m1_cdtr / n_cdtr);
           lambda_est(c, d, t, r) /= durations(d, t);
           // printf(
-          //     "m0_cdr = %f, m1_cdr = %f, m1_cdtr = %f, n_cdtr = %f, lambda
+          //     "m0_cdr = %f, m1_cdr = %f, m1_cdtr = %f, n_cdtr = %f,
+          //     lambda
           //     =
           //     "
           //     "%f\n",
@@ -1018,10 +1407,10 @@ void run_models_missing_time(AppParams& app_params) {
   }
   // ulong C, D, T, R, nb_obs;
   // std::ifstream theo_lambda("Artificial/theoretical_lambda.dat",
-  // std::ios::in); theo_lambda >> C >> D >> T >> R >> nb_obs; printf("C = %ld
-  // D = %ld T = %ld R = %ld nb_obs = %ld\n", C, D, T, R, nb_obs);
-  // xt::xarray<double> theoretical_lambda = xt::zeros<double>({C, D, T, R});
-  // while (!theo_lambda.eof()) {
+  // std::ios::in); theo_lambda >> C >> D >> T >> R >> nb_obs; printf("C =
+  // %ld D = %ld T = %ld R = %ld nb_obs = %ld\n", C, D, T, R, nb_obs);
+  // xt::xarray<double> theoretical_lambda = xt::zeros<double>({C, D, T,
+  // R}); while (!theo_lambda.eof()) {
   //   int c, d, t, r;
   //   double val;
   //   theo_lambda >> c >> d >> t >> r >> val;
@@ -1030,8 +1419,8 @@ void run_models_missing_time(AppParams& app_params) {
   // }
   // theo_lambda.close();
   // printf("Finished reading theoretical lambda\n");
-  // xt::xarray<int> nb_observations = nb_obs * xt::ones<int>({C, D, T, R});
-  // xt::xarray<int> nb_arrivals = xt::zeros<int>({C, D, T, R});
+  // xt::xarray<int> nb_observations = nb_obs * xt::ones<int>({C, D, T,
+  // R}); xt::xarray<int> nb_arrivals = xt::zeros<int>({C, D, T, R});
   // xt::xarray<int> nb_missing_arrivals = xt::zeros<int>({C, D, R});
   // xt::xarray<int> sample = xt::zeros<int>({C, D, T, R, nb_obs});
   // xt::xarray<int> sample_missing_arrivals = xt::zeros<int>({C, D, R,
@@ -1047,9 +1436,9 @@ void run_models_missing_time(AppParams& app_params) {
   //   std::istringstream ss(aux_str);
   //   int c, t, d, r, j, val;
   //   ss >> t >> d >> r >> c >> j >> val;
-  //   printf("t = %d d = %d r = %d c = %d j = %d val = %d\n", t, d, r, c, j,
-  //   val); std::cin.get(); sample(c, d, t, r, j) = val; nb_arrivals(c, d, t,
-  //   r) += val;
+  //   printf("t = %d d = %d r = %d c = %d j = %d val = %d\n", t, d, r, c,
+  //   j, val); std::cin.get(); sample(c, d, t, r, j) = val;
+  //   nb_arrivals(c, d, t, r) += val;
   // } while (true);
   // sample_file.close();
   // printf("Finished reading sample data\n");
@@ -1077,8 +1466,8 @@ void run_models_missing_time(AppParams& app_params) {
   //     for (ulong t = 0; t < T; ++t) {
   //       for (ulong r = 0; r < R; ++r) {
   //         sum_diff +=
-  //             std::abs(lambda_est(c, d, t, r) - theoretical_lambda(c, d, t,
-  //             r));
+  //             std::abs(lambda_est(c, d, t, r) - theoretical_lambda(c,
+  //             d, t, r));
   //       }
   //     }
   //   }
@@ -1109,9 +1498,10 @@ AppParams load_options(int argc, char* argv[]) {
       "sigma,s", po::value<double>()->default_value(0.5),
       "Sigma parameter of armijo step. Default = 0.5")(
       "max_iter,I", po::value<int>()->default_value(30),
-      "Max number of iterations used in stopping criterion. Default = 30")(
-      "lower_lambda,L", po::value<double>()->default_value(1e-6),
-      "Lower bound on decision variables for both models. Default = 1e-6")(
+      "Max number of iterations used in stopping criterion. Default = "
+      "30")("lower_lambda,L", po::value<double>()->default_value(1e-6),
+            "Lower bound on decision variables for both models. Default "
+            "= 1e-6")(
       "beta_bar,B", po::value<double>()->default_value(2.0),
       "Initial step size for projected gradient. Default = 2.0")(
       "mc_samples,S", po::value<ulong>()->default_value(30),
