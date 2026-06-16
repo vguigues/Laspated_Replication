@@ -1,0 +1,29 @@
+name: laspated-replication-py313
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pip
+  - numpy>=2.4.6
+  - pandas>=3.0.3
+  - geopandas>=0.12.2
+  - fiona>=1.9.6
+  - matplotlib>=3.10.9
+  - rtree>=1.4.1
+  - descartes>=1.1.0
+  - scipy>=1.14.0
+  - shapely>=2.0.4
+  - pyproj>=3.6.1
+  - seaborn>=0.13.0
+  - gdal
+  - boost-cpp
+  - cxx-compiler
+  - make
+  - pkg-config
+  - pip:
+      - h3>=4.5.0
+      - laspated>=0.0.9
+
+# Optional pieces not encoded here:
+# - gurobipy and native Gurobi installation/licensing
+# - compiling Replication/cpp_tests still requires running `make`

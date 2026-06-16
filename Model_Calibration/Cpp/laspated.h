@@ -1130,7 +1130,7 @@ xt::xarray<double> regularized(Model& model, Param& param,
   gradient = model.gradient(x);
   int iter_without_improv = 0;
   std::vector<double> improvs;
-  while (k < max_iter && (k < 30 || iter_without_improv < 5)) {
+  while (k < max_iter) {
     x_aux = x - beta_k * gradient;
     z = model.projection(x_aux);
 
@@ -1199,7 +1199,6 @@ xt::xarray<double> covariates(Model& model, Param& param,
   vector<double> f_val;
   int max_iter = param.max_iter;
   x = model.projection(x);
-  printf("Initial projection done\n");
   xt::xarray<double> z = xt::zeros<double>(x.shape());
   xt::xarray<double> z_aux = xt::zeros<double>(x.shape());
   xt::xarray<double> diff_aux = xt::zeros<double>(x.shape());
@@ -1207,19 +1206,15 @@ xt::xarray<double> covariates(Model& model, Param& param,
 
   while (k < max_iter) {
     double fold = model.f(x);
-    printf("fold done\n");
     xt::xarray<double> gradient = model.gradient(x);
-    printf("gradient done\n");
     xt::xarray<double> x_aux = x - beta_k * gradient;
     z = model.projection(x_aux);
-    printf("projection done\n");
     bool stop = false;
     int j = 0;
     diff_aux = x - z;
     double f = model.f(z);
     double rhs = model.get_rhs(gradient, diff_aux);
-    printf("rhs done\n");
-    printf("k = %d, fold = %.8f, f = %.8f, rhs = %f\n", k, fold, f, rhs);
+    // printf("k = %d, fold = %.8f, f = %.8f, rhs = %f\n", k, fold, f, rhs);
     if (f > fold - sigma * rhs) {
       bool stop = false;
       while (!stop) {

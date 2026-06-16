@@ -293,7 +293,7 @@ def experiment_1():
             )
         else:
             table_file.write("- & ")
-        table_file.write(f"{table_results[nb_week,2,1][2]}/0 \\\\ \hline\n")
+        table_file.write(f"{table_results[nb_week,2,1][2]}/0 \\hline\n")
 
         table_file.write("\n")
     table_file.close()

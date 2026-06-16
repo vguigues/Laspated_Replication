@@ -5,7 +5,15 @@ ifeq ($(USE_GUROBI), 1)
 else
 	USE_GUROBI=0
 endif
-INCLUDE_BOOST = /usr/include/boost
+BOOST_PREFIX ?= $(CONDA_PREFIX)
+
+ifeq ($(BOOST_PREFIX),)
+	BOOST_INCLUDES :=
+	BOOST_LIBS := -lboost_program_options
+else
+	BOOST_INCLUDES := -I$(BOOST_PREFIX)/include
+	BOOST_LIBS := -L$(BOOST_PREFIX)/lib -Wl,-rpath,$(BOOST_PREFIX)/lib -lboost_program_options
+endif
 INCLUDE_LASPATED = -I../../Model_Calibration/Cpp
 
 # Detectar o SO
@@ -38,14 +46,14 @@ $(info OS detected: $(OS))
 $(info Architecture detected: $(ARCH))
 $(info CFLAGS: $(CFLAGS))
 
-CARGS   	= -std=c++14 -Wfatal-errors -Wno-ignored-attributes $(CXX_FLAGS) -lboost_program_options
+CARGS   	= -std=c++14 -Wfatal-errors -Wno-ignored-attributes $(CXX_FLAGS) $(BOOST_INCLUDES)
 # CONFIG 		= -g -O0
 CONFIG 		= -O3
 CPP			= g++
 EXE			= laspated
 
 all: main.cpp tests.h
-	$(CPP) -o $(EXE) main.cpp $(CARGS) $(CFLAGS) -DUSE_GUROBI=$(USE_GUROBI) $(INCLUDE_GUROBI) $(INCLUDE_LASPATED) $(LIB_GUROBI) -I. $(CONFIG)
+	$(CPP) -o $(EXE) main.cpp $(CARGS) $(CFLAGS) -DUSE_GUROBI=$(USE_GUROBI) $(INCLUDE_GUROBI) $(INCLUDE_LASPATED) $(LIB_GUROBI) $(BOOST_LIBS) -I. $(CONFIG)
 
 clean:
 	$(RM) $(EXE)
